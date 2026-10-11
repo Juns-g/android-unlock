@@ -26,7 +26,7 @@ sh install.sh "$PWD/build"
 
 The build resolves ADB symlinks once, verifies an executable real file owned by the current user or root and not group/world writable, and pins its absolute path in the signed bundle. Runtime never searches PATH or reads an ADB override. Moving/updating to a different client path requires rebuilding. There is no official signing or notarization claim.
 
-Install targets are `~/Applications/AndroidUnlockHelper.app` and `~/.local/bin/android-unlock`. The launcher executes the real bundle executable, not a binary symlink. Existing app **or** launcher causes a refusal by default. For an intended update, `sh install.sh "$PWD/build" --replace` preserves old files in a local backup directory before replacement. An ad-hoc update can change Keychain trust; it does not migrate or grant permissions.
+Install targets are `~/Applications/AndroidUnlockHelper.app` and `~/.local/bin/android-unlock`. The launcher executes the real bundle executable, not a binary symlink. If either the app or the launcher already exists, installation is refused by default. For an intended update, `sh install.sh "$PWD/build" --replace` preserves old files in a local backup directory before replacement. An ad-hoc update can change Keychain trust; it does not migrate or grant permissions.
 
 For a safe installation smoke test:
 

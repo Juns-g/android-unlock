@@ -11,6 +11,6 @@
 - [UiAutomatorTestCase](https://android.googlesource.com/platform/frameworks/uiautomator/+/refs/heads/main/src/com/android/uiautomator/testrunner/UiAutomatorTestCase.java)。
 - [AccessibilityNodeInfo](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-16.0.0_r1/core/java/android/view/accessibility/AccessibilityNodeInfo.java) 和 [Rect](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-16.0.0_r1/graphics/java/android/graphics/Rect.java)。
 
-UIAutomator 链接指向会变化的源码分支，不是虚构的固定 commit。运行时 ABI 和无障碍接口支持仍取决于具体设备；无法验证时拒绝继续。R8/D8、JDK、Swift 和 platform-tools 是用户自行提供的构建或运行工具，不内置于本仓库。本项目不宣称获得 Android、Apple、签名或公证方面的官方认可。
+UIAutomator 链接指向动态更新的上游源码分支，而非固定 commit。运行时 ABI 和无障碍接口支持仍取决于具体设备；无法验证时拒绝继续。R8/D8、JDK、Swift 和 platform-tools 是用户自行提供的构建或运行工具，不内置于本仓库。本项目不宣称获得 Android、Apple、签名或公证方面的官方认可。
 
 本文件是来源与许可的中文说明，不替代仓库中的许可证法律原文。
