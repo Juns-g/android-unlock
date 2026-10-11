@@ -4,6 +4,10 @@ description: Use when checking or unlocking an Android screen.
 platforms: [macos]
 ---
 
+[English](SKILL.md) | [简体中文](SKILL.zh-CN.md)
+
+`SKILL.md` remains the canonical agent-discovery entry; the Chinese companion is a reading reference, not a second registered Skill.
+
 Use the installed local `~/.local/bin/android-unlock` CLI on macOS. Read [README.md](README.md), relative to this Skill checkout, when installation, compatibility, missing collector code or enrollment is in question. If the CLI is absent, stop with that prerequisite; install/enrollment is a separate local-human task.
 
 1. Run `"$HOME/.local/bin/android-unlock" devices`. Select the user's exact serial from the nonsecret list; never choose a write target implicitly.

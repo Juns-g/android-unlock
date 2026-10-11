@@ -1,5 +1,7 @@
 # android-unlock
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 A small macOS CLI and agent [Skill](SKILL.md) for ordinary Android screen authentication using the owner's locally saved numeric PIN. It does not defeat a lockscreen. The native, locally ad-hoc-signed App provides a masked enrollment dialog and a stable Keychain identity; it is not a general GUI product.
 
 ## Requirements and limits
