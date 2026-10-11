@@ -76,19 +76,22 @@ func postUICompatible(_ before: Snapshot, _ after: Snapshot, sameIdentity: Bool,
 enum LockState: String, Codable { case locked, unlocked, unknown }
 struct Device: Equatable { let serial: String; let state: String }
 func validSerial(_ s: String) -> Bool {
-    !s.isEmpty && s.utf8.count <= 128 && s.utf8.allSatisfy {
-        (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [45,46,58,95].contains($0)
+    !s.isEmpty && s.utf8.count <= 128 && !s.hasPrefix(" ") && !s.hasSuffix(" ") && !s.contains("  ") && s.utf8.allSatisfy {
+        (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [32, 40, 41, 45, 46, 58, 95].contains($0)
     }
 }
 func devices(_ text: String) -> [Device]? {
     let lines = text.split(separator: "\n").map(String.init)
     guard lines.first == "List of devices attached" else { return nil }
     var result: [Device] = []
+    let states = ["device", "offline", "unauthorized", "no"]
     for line in lines.dropFirst() where !line.trimmingCharacters(in: .whitespaces).isEmpty {
         let p = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-        guard p.count >= 2, validSerial(p[0]), !result.contains(where: { $0.serial == p[0] }),
-              ["device", "offline", "unauthorized", "no"].contains(p[1]) else { return nil }
-        result.append(Device(serial: p[0], state: p[1]))
+        // adb inserts " (N)" into duplicate mDNS serials, so the state is the first known token, not field 2.
+        guard let stateIndex = p.firstIndex(where: { states.contains($0) }), stateIndex > 0 else { return nil }
+        let serial = p[..<stateIndex].joined(separator: " ")
+        guard validSerial(serial), !result.contains(where: { $0.serial == serial }) else { return nil }
+        result.append(Device(serial: serial, state: p[stateIndex]))
     }
     return result
 }
