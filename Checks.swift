@@ -174,6 +174,110 @@ import Foundation
     ck(focusObservation(windows: vivoWindow, displays: "  Display: mDisplayId=0\n  " + vivoFocus).line == vivoFocus)
     let vivoTarget = PinTarget(window: vivoFocus, field: "", count: 0)
     ck(verifiedWindow(vivoWindow, target: vivoTarget, pid: "4321", uid: 10123))
+    let numericRoleWindow = vivoWindow.replacingOccurrences(of: "ty=NOTIFICATION_SHADE", with: "ty=2040")
+    ck(verifiedWindow(numericRoleWindow, target: vivoTarget, pid: "4321", uid: 10123))
+    for role in ["2041", "02040", "2040suffix", "2040.0", "NOTIFICATION_SHADEextra", "NOTIFICATION_SHADE!", "", "2040 ty=", "2040 ty=2040", "NOTIFICATION_SHADE ty="] {
+        ck(!verifiedWindow(vivoWindow.replacingOccurrences(of: "ty=NOTIFICATION_SHADE", with: "ty=" + role), target: vivoTarget, pid: "4321", uid: 10123))
+    }
+    ck(!verifiedWindow(numericRoleWindow, target: vivoTarget, pid: "9999", uid: 10123))
+    ck(!verifiedWindow(numericRoleWindow, target: vivoTarget, pid: "4321", uid: 10124))
+    let unverifiedOEMField = xml.replacingOccurrences(of: "id/pinEntry", with: "id/passwordEntry").replacingOccurrences(of: "password=\"true\"", with: "password=\"true\" editable=\"true\" input-type=\"18\" max-text-length=\"-1\"")
+    ck(pinTarget(xml: unverifiedOEMField, windowText: focus) == nil)
+    func flymeFixture(_ count: Int, deleteVisible: Bool) -> String {
+        func container(_ id: String, _ cls: String, _ children: String, bounds: String = "[0,0][800,1600]") -> String {
+            "<node package=\"com.android.systemui\" resource-id=\"com.android.systemui:id/\(id)\" class=\"\(cls)\" enabled=\"true\" password=\"false\" focused=\"false\" clickable=\"false\" bounds=\"\(bounds)\">\(children)</node>"
+        }
+        let field = "<node package=\"com.android.systemui\" resource-id=\"com.android.systemui:id/passwordEntry\" class=\"android.widget.EditText\" password=\"true\" enabled=\"true\" focused=\"true\" focusable=\"true\" clickable=\"false\" editable=\"true\" input-type=\"16\" max-text-length=\"-1\" text=\"\(String(repeating: "•", count: count))\" bounds=\"[250,200][550,260]\"/>"
+        let delete = deleteVisible ? container("delete", "android.widget.ImageView", "", bounds: "[580,200][620,260]") : ""
+        var tree = container("inputBox", "android.widget.RelativeLayout", field + delete)
+        tree += container("lockPattern", "android.view.View", "", bounds: "[100,500][700,1400]").replacingOccurrences(of: "bounds=", with: "bounds-parent=\"[0,0][600,900]\" bounds=")
+        let chain = [("keyguard_bouncer_container", "android.widget.FrameLayout"), ("keyguard_host_view", "android.widget.FrameLayout"), ("keyguard_security_container", "android.widget.FrameLayout"), ("view_flipper", "android.widget.ViewFlipper"), ("mz_keyguard_pin_view", "android.widget.LinearLayout"), ("keyguard_bouncer_frame", "android.widget.FrameLayout"), ("keyguard_bouncer_rl", "android.widget.RelativeLayout")]
+        for (id, cls) in chain.reversed() { tree = container(id, cls, tree) }
+        return "<?xml version=\"1.0\"?><hierarchy>" + tree + "</hierarchy>"
+    }
+    ck(flymeSpeechDisabled("0\n") && flymeSpeechDisabled("null"))
+    ck(!flymeSpeechDisabled("1") && !flymeSpeechDisabled(nil) && !flymeSpeechDisabled(""))
+    ck(batchArguments("SYNTHETIC", commands: [flymeSpeechCommand]) != nil)
+    ck(batchArguments("SYNTHETIC", commands: identityCommands + [processCommand("123")!] + stateCommands + [flymeCodeCommand, flymePrivateModeCommand, flymeSpeechCommand]) != nil)
+    ck(progressHeader("__AU_FLYME_V1__ 1 1 0 24", sequence: 1) == FlymeProgressHeader(sequence: 1, count: 1, error: 0, length: 24))
+    for line in ["__AU_FLYME_V1__ 2 1 0 24", "__AU_FLYME_V1__ 1 5 0 24", "__AU_FLYME_V1__ 1 1 0 262145", "__AU_FLYME_V1__ 1 1 3 24", "__AU_FLYME_V1__ 1 01 0 24", "__AU_FLYME_V1__ 1 1 0 24 extra"] { ck(progressHeader(line, sequence: 1) == nil) }
+    ck(flymeMaskedProgress("", observedCount: 1) == 1)
+    ck(flymeMaskedProgress("•", observedCount: 1) == 1)
+    ck(flymeMaskedProgress("", observedCount: nil) == 0)
+    ck(flymeMaskedProgress("•", observedCount: 2) == nil)
+    ck(flymeMaskedProgress("PRIVATE_NEGATIVE_MARKER", observedCount: 1) == nil)
+    ck(flymeMaskedProgress("", observedCount: 0) == nil)
+    let themeFrame = flymeFixture(0, deleteVisible: true)
+    ck(pinTarget(xml: themeFrame, windowText: focus) == nil)
+    ck(pinTarget(delegate: parseHierarchy(themeFrame, flymeProgressCount: 1)!, windowText: focus)?.count == 1)
+    ck(pinTarget(delegate: parseHierarchy(flymeFixture(0, deleteVisible: false), flymeProgressCount: 1)!, windowText: focus) == nil)
+    let flymeEmpty = flymeFixture(0, deleteVisible: false)
+    let flymeTarget = pinTarget(xml: flymeEmpty, windowText: focus)
+    ck(flymeTarget?.mode == .flymeFour && flymeTarget?.count == 0)
+    ck(flymeTarget?.keys.count == 10 && flymeTarget?.keys[0]?.center.0 == 400 && flymeTarget?.keys[0]?.center.1 == 1287)
+    ck(flymeTarget?.keys[1]?.center.0 == 200 && flymeTarget?.keys[1]?.center.1 == 612)
+    for local in ["[0,0][599,900]", "[0,0][600,899]", "[1,0][601,900]", "[0,1][600,901]", ""] {
+        ck(pinTarget(xml: flymeEmpty.replacingOccurrences(of: "[0,0][600,900]", with: local), windowText: focus) == nil)
+    }
+    ck(flymeTouchKeys(screen: UIBounds(x1: 0, y1: 0, x2: 600, y2: 20), local: UIBounds(x1: 0, y1: 0, x2: 600, y2: 20)) == nil)
+    for count in 1...4 { ck(pinTarget(xml: flymeFixture(count, deleteVisible: true), windowText: focus)?.count == count) }
+    ck(pinTarget(xml: flymeFixture(0, deleteVisible: true), windowText: focus) == nil)
+    ck(pinTarget(xml: flymeFixture(1, deleteVisible: false), windowText: focus) == nil)
+    ck(pinTarget(xml: flymeFixture(5, deleteVisible: true), windowText: focus) == nil)
+    for (old, new) in [("input-type=\"16\"", "input-type=\"18\""), ("editable=\"true\"", "editable=\"false\""), ("id/mz_keyguard_pin_view", "id/mz_keyguard_password_view"), ("id/keyguard_host_view", "id/unknown_host"), ("id/lockPattern", "id/unknown_keyboard"), ("text=\"\"", "text=\"x\""), ("[250,200][550,260]", "[0,0][900,1800]")] {
+        ck(pinTarget(xml: flymeEmpty.replacingOccurrences(of: old, with: new), windowText: focus) == nil)
+    }
+    ck(pinTarget(xml: flymeEmpty.replacingOccurrences(of: "package=\"com.android.systemui\"", with: "package=\"example.other\""), windowText: focus) == nil)
+    var flymeState = s; flymeState.target = flymeTarget
+    var currentProof = flymeState; currentProof.focusResult = "focus_identity_verified"; currentProof.focusDisplayID = 0
+    currentProof.postUIStateChecked = true; currentProof.observedAt = 100; currentProof.postUIVerifiedAt = 101
+    ck(freshFlymeInputProof(currentProof, expected: 0, now: 102))
+    ck(!freshFlymeInputProof(currentProof, expected: 0, now: 102.001))
+    ck(!freshFlymeInputProof(currentProof, expected: 1, now: 101))
+    currentProof.postUIStateChecked = false; ck(!freshFlymeInputProof(currentProof, expected: 0, now: 101))
+
+    var flymeActions = 0; var flymeFinalChecks = 0
+    ck(drivePIN(Data(repeating: 48, count: 4), initial: flymeState, observe: { final in
+        var next = flymeState
+        if final { flymeFinalChecks += 1; next.state = .unlocked; next.target = nil }
+        else { next.target = pinTarget(xml: flymeFixture(flymeActions, deleteVisible: flymeActions > 0), windowText: focus) }
+        return next
+    }, send: { key in ck(key != 66); flymeActions += 1; return true }) == .submitted)
+    ck(flymeActions == 4 && flymeFinalChecks == 1)
+    flymeActions = 0
+    ck(drivePIN(Data(repeating: 48, count: 4), initial: flymeState, observe: { _ in flymeState }, send: { _ in flymeActions += 1; return true }) == .partial && flymeActions == 1)
+    ck(drivePIN(Data(repeating: 48, count: 6), initial: flymeState, observe: { _ in flymeState }, send: { _ in fatalError("length gate failed") }) == .refused)
+    ck(flymeSystemUICodeMatches(flymeSystemUISHA256 + "  " + flymeSystemUIPath + "\n"))
+    ck(!flymeSystemUICodeMatches(String(repeating: "0", count: 64) + "  " + flymeSystemUIPath))
+    ck(!flymeSystemUICodeMatches(flymeSystemUISHA256 + "  " + flymeSystemUIPath + "\nextra"))
+    ck(batchArguments("SYNTHETIC", commands: [flymeCodeCommand]) != nil)
+    ck(batchArguments("SYNTHETIC", commands: [flymePrivateModeCommand]) != nil)
+    ck(batchArguments("SYNTHETIC", commands: identityCommands + [processCommand("123")!] + stateCommands + [flymeCodeCommand, flymePrivateModeCommand]) != nil)
+    ck(batchArguments("SYNTHETIC", commands: [("flymePrivateMode", "settings put global mz_private_mode 0")]) == nil)
+    for value in ["0", "null\n"] { ck(flymePrivateModeDisabled(value)) }
+    for value in [nil, "", "1", "-1", "00", "0\n1", "error"] as [String?] { ck(!flymePrivateModeDisabled(value)) }
+    var privateBlocked = flymeState; privateBlocked.reason = "flyme_private_mode_unverified"; privateBlocked.target = nil
+    ck(attempt(flymeState, authorized: true, recheck: { privateBlocked }, read: { fatalError("private-mode gate read a credential") }, submit: { fatalError("private-mode gate sent input") }, confirm: { privateBlocked }).0 == "state_changed_before_secret")
+    var flymeNonempty = flymeState; flymeNonempty.target = pinTarget(xml: flymeFixture(1, deleteVisible: true), windowText: focus)
+    ck(decision(flymeNonempty) == "pin_field_not_empty")
+    flymeActions = 0
+    ck(drivePIN(Data(repeating: 48, count: 4), initial: flymeState, observe: { _ in
+        var next = flymeState; next.target = pinTarget(xml: flymeFixture(flymeActions, deleteVisible: flymeActions > 0), windowText: focus); return next
+    }, send: { key in ck(key != 66); flymeActions += 1; return true }) == .partial && flymeActions == 4)
+    let flymeCoverXML = "<?xml version=\"1.0\"?><hierarchy>" +
+        ["keyguard_background_frame", "keyguard_header", "keyguard_selector_fade_container"].map { id in
+            let cls = id == "keyguard_header" ? "android.widget.RelativeLayout" : "android.widget.FrameLayout"
+            let bounds = id == "keyguard_header" ? "[0,0][800,100]" : id == "keyguard_background_frame" ? "[0,0][800,1600]" : "[0,1500][800,1600]"
+            return "<node package=\"com.android.systemui\" resource-id=\"com.android.systemui:id/\(id)\" class=\"\(cls)\" enabled=\"true\" password=\"false\" focused=\"false\" clickable=\"false\" bounds=\"\(bounds)\"/>"
+        }.joined() + "</hierarchy>"
+    ck(parseHierarchy(flymeCoverXML)?.flymeCover == true && coverHierarchy(flymeCoverXML))
+    ck(parseHierarchy(flymeCoverXML.replacingOccurrences(of: "id/keyguard_selector_fade_container", with: "id/unknown_footer"))?.flymeCover == false)
+    var metadataState = flymeState; metadataState.focusResult = "focus_identity_verified"; metadataState.postUIStateChecked = true
+    metadataState.observedAt = 10; metadataState.postUIVerifiedAt = 11
+    metadataState.target = PinTarget(window: "PRIVATE_MARKER", field: "PRIVATE_MARKER", count: 1, mode: .flymeFour)
+    let safeMetadata = pinInputMetadata(metadataState, actions: 1, adbSucceeded: 1, now: 11)
+    ck(safeMetadata["observedEnteredCount"] as? Int == 1 && !String(data: try! JSONSerialization.data(withJSONObject: safeMetadata), encoding: .utf8)!.contains("PRIVATE_MARKER"))
+    ck(pinInputMetadata(metadataState, actions: 1, adbSucceeded: 1, now: 13)["observedEnteredCount"] == nil)
     ck(!verifiedWindow(vivoWindow.replacingOccurrences(of: "u0a10123", with: "u0a74"), target: vivoTarget, pid: "4321", uid: 10123))
     ck(!verifiedWindow(vivoWindow.replacingOccurrences(of: "ty=NOTIFICATION_SHADE", with: "ty=APPLICATION"), target: vivoTarget, pid: "4321", uid: 10123))
     ck(!verifiedWindow(vivoWindow.replacingOccurrences(of: "mOwnerUid=10123", with: "mOwnerUid=10124"), target: vivoTarget, pid: "4321", uid: 10123))

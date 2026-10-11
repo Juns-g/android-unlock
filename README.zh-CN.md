@@ -8,9 +8,9 @@
 
 - Mac 需安装 Swift/Xcode 命令行工具、官方 Android platform-tools 中的 `adb`，并且 **`127.0.0.1:5037` 上已有运行中的本地 ADB 服务**。仅开启 USB 调试，不代表手机已信任此 Mac 的 RSA 身份或设备已在线。助手不会启动、重启、替换或重定向该服务。构建时固定的客户端可执行文件，可能与启动共享服务的可执行文件不同；服务端和宿主机也必须可信。
 - 必须明确指定准确的设备 serial；仅支持 Android 主用户 0、安全的普通锁屏，以及本次开机后已经正常解锁过的 Android 用户。重启后的首次解锁必须手动完成。不支持密码、图案、生物识别或其他用户。
-- 已在 Android 16 上实测一种 Vivo 六槽数字 PIN 界面。代码中也有严格的 AOSP PIN 解析逻辑，但其他设备、厂商界面和系统版本尚未验证。日常使用不要求屏幕常亮：一次已授权尝试可以唤醒一次，并请求系统认证界面一次。
+- 已在 Android 16 上实测一种 Vivo 六槽数字 PIN 界面；新增魅族17／Android13／Flyme10.5.0.0A的精确四位纯数字配置，以受守卫的正常触摸和同源无障碍进度工作。代码中也有严格的 AOSP PIN 解析逻辑；其他变体尚未验证。日常使用不要求屏幕常亮：一次已授权尝试可以唤醒一次，并请求系统认证界面一次。
 
-2026-10-11，源码基线曾在新的正常进程中，从黑屏锁定起点通过非交互钥匙串读取完成一次解锁，随后另行查询状态确认已解锁。之后一次用户要求的尝试因无法核验窗口，在读取凭据或输入前停止；再后来观察到手机已解锁，但原因未知，不能归因于该尝试。本仓库的公开构建尚未在实体手机上配置凭据或运行验证。只要无法确认当前身份、焦点、几何结构或时效，安全停止就是预期行为。
+2026-10-11，源码基线曾在新的正常进程中，从黑屏锁定起点通过非交互钥匙串读取完成一次解锁，随后另行查询状态确认已解锁。之后一次用户要求的尝试因无法核验窗口，在读取凭据或输入前停止；再后来观察到手机已解锁，但原因未知，不能归因于该尝试。2026-10-12，冻结Flyme源码基线累计四次真实自动解锁均由独立状态核验成功（三次真正黑屏起点，恢复后另一次亮屏锁定起点），正常新进程非交互钥匙串读取成功。但CLI最后触摸后仍exit3／`flyme_progress_missing_ack`，属于已知终态回执误报，不能称CLI成功回执也已修好。主分支保留该实测基线；终态确认修复另存离线验证过、尚未真机验收的可选补丁。使用Flyme前必读[验证总结与本人后续事项](docs/flyme-validation.md)。公开仓库可离线构建检查；重新构建的签名并未配置或真机验收，也不继承本机基线的钥匙串许可。只要无法确认当前身份、焦点、几何结构或时效，安全停止就是预期行为。
 
 ## 构建与安装
 
@@ -42,11 +42,11 @@ sh install.sh "$PWD/build" --stage "$PWD/build/stage"
 只读界面采集器是一份代码资源，不是 APK。由本人明确将仓库附带、固定哈希的 JAR 部署到已授权的设备；助手不会自动上传它：
 
 ```sh
-adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-5582c29de27b979f4a583b3fc16c483d3103d04035b7e294c5e22904fa24a276.jar
-adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-5582c29de27b979f4a583b3fc16c483d3103d04035b7e294c5e22904fa24a276.jar
+adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
+adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
 ```
 
-本机和设备上的摘要都必须等于 `5582c29de27b979f4a583b3fc16c483d3103d04035b7e294c5e22904fa24a276`。资源缺失或不匹配时，助手会拒绝继续。仓库包含源码和仅供编译的 API 声明。若要重新构建，请自行提供 JDK 和官方 Google R8/D8 JAR，并执行 `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`。重新构建可能改变归档字节；替换受完整性保护的资源，需要有意识地审查并更新固定哈希，不能关闭验证。DEX 中只有自定义 `FastHierarchy` 类；编译声明不会作为运行时实现发布。详见[来源与许可说明](THIRD_PARTY_NOTICES.zh-CN.md)。
+本机和设备上的摘要都必须等于 `128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def`。资源缺失或不匹配时，助手会拒绝继续。仓库包含源码和仅供编译的 API 声明。若要重新构建，请自行提供 JDK 和官方 Google R8/D8 JAR，并执行 `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`。重新构建可能改变归档字节；替换受完整性保护的资源，需要有意识地审查并更新固定哈希，不能关闭验证。DEX只包含本项目原创`FastHierarchy`、`FlymeProgressSession`及其生成的监听器类；编译声明不会作为运行时实现发布。详见[来源与许可说明](THIRD_PARTY_NOTICES.zh-CN.md)。
 
 先手动将手机正常解锁、亮屏并保持安全锁屏设置，再由**本机用户本人**执行：
 

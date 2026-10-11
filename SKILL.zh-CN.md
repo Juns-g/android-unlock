@@ -12,3 +12,6 @@ Agent 自动发现入口保持为 `SKILL.md`；本文件是中文对照说明，
 4. 按固定 JSON 回执报告结果。`unlocked_confirmed` 表示已独立核验；`already_unlocked` 表示无需 PIN、没有输入的已解锁状态。被阻止、拒绝、未确认或部分输入时，立即停止并报告准确的安全类别。不重试、不清空、不补输、不覆盖凭据来源。
 
 只有本机用户本人可以执行 `setup --local-user` 或 `authorize-existing --local-user`，并且秘密只在原生/系统 UI 中输入。不得通过聊天、argv、环境变量、文件或其他工具索要、获取或传递 PIN。请保持既有的可信 ADB 连接、专属钥匙串条目以及所有安全校验规则不变。解锁后的 App/业务动作需要各自的授权；解锁本身不执行这些动作。
+
+
+精确Flyme四位基线有[已知末位回执误报](docs/flyme-validation.md)：仅当原回执为`pinProfile=flyme_four`、`actionsAttempted=4`、`adbSucceeded=4`、`reason=flyme_progress_missing_ack`时，另作一次新鲜只读`status --serial SERIAL`确认同目标。CLI仍是exit3，不改写、不重输；若独立状态确为observed／online／secure／user0／unlocked，分别报告“实际解锁成功”和“CLI回执误报”。locked／unknown／用户或身份改变、所有前位进度失败仍停止。不要仅为修回执替换已批准可用App；新签名授权只能由本人操作，可以延期。

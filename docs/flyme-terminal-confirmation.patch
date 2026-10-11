@@ -1,0 +1,71 @@
+--- a/NativeProgress.swift
++++ b/NativeProgress.swift
+@@ -101,9 +101,7 @@
+     var first = true; var actions = 0; var succeeded = 0
+     let outcome = drivePIN(pin, initial: initial, observe: { final in
+         if final {
+-            guard progress.finalAcknowledged() else { var failed = last; failed.reason = progress.result; report?(failed, actions, succeeded); return failed }
+-            last = confirmUnlock(initial)
+-            last.progressPhase = "final_ack_and_confirmation"
++            last = flymeTerminalConfirmation(initial, actions: actions, succeeded: succeeded) { confirmUnlock(initial) }
+         } else if first { first = false }
+         else { last = snapshot(initial.serial, progress: progress); last.progressPhase = "after_input_full" }
+         if !final && !freshFlymeInputProof(last, expected: progress.expected, now: ProcessInfo.processInfo.systemUptime) {
+--- a/Policy.swift
++++ b/Policy.swift
+@@ -586,6 +586,21 @@
+     if trusted, let target = s.target { result["observedEnteredCount"] = target.count }
+     return result
+ }
++func flymeTerminalConfirmation(_ initial: Snapshot, actions: Int, succeeded: Int, confirm: () -> Snapshot) -> Snapshot {
++    var after = initial
++    guard initial.target?.mode == .flymeFour, actions == 4, succeeded == 4 else {
++        after.reason = "flyme_terminal_dispatch_incomplete"; after.progressPhase = "terminal_lock_state_unconfirmed"; return after
++    }
++    // The fourth append callback may disappear with the authenticated field; no count is inferred.
++    after = confirm()
++    if consistent(initial, after), after.reason == "observed", after.secure, after.state == .unlocked {
++        after.progressPhase = "terminal_lock_state_transition"
++    } else {
++        if after.reason == "observed" { after.reason = "flyme_terminal_state_unconfirmed" }
++        after.progressPhase = "terminal_lock_state_unconfirmed"
++    }
++    return after
++}
+ // One observed OEM has six-slot auto-submit; never dispatch Enter for that mode.
+ func drivePIN(_ pin: Data, initial: Snapshot, observe: (Bool) -> Snapshot, send: (Int) -> Bool) -> InputResult {
+     guard validPIN(pin), let target = initial.target, target.mode != .vivoSix || pin.count == 6,
+--- a/Checks.swift
++++ b/Checks.swift
+@@ -239,11 +239,30 @@
+     var flymeActions = 0; var flymeFinalChecks = 0
+     ck(drivePIN(Data(repeating: 48, count: 4), initial: flymeState, observe: { final in
+         var next = flymeState
+-        if final { flymeFinalChecks += 1; next.state = .unlocked; next.target = nil }
++        if final {
++            flymeFinalChecks += 1; next.state = .unlocked; next.target = nil
++            return flymeTerminalConfirmation(flymeState, actions: flymeActions, succeeded: flymeActions) { next }
++        }
+         else { next.target = pinTarget(xml: flymeFixture(flymeActions, deleteVisible: flymeActions > 0), windowText: focus) }
+         return next
+     }, send: { key in ck(key != 66); flymeActions += 1; return true }) == .submitted)
+     ck(flymeActions == 4 && flymeFinalChecks == 1)
++    var terminalUnlocked = flymeState; terminalUnlocked.state = .unlocked; terminalUnlocked.target = nil
++    let terminal = flymeTerminalConfirmation(flymeState, actions: 4, succeeded: 4) { terminalUnlocked }
++    ck(terminal.reason == "observed" && terminal.state == .unlocked && terminal.target == nil && terminal.progressPhase == "terminal_lock_state_transition")
++    for change: (inout Snapshot) -> Void in [{ $0.state = .locked }, { $0.state = .unknown }, { $0.serial = "OTHER_SYNTHETIC" }, { $0.user = 1 }, { $0.secure = false }] {
++        var refused = terminalUnlocked; change(&refused)
++        ck(flymeTerminalConfirmation(flymeState, actions: 4, succeeded: 4, confirm: { refused }).reason != "observed")
++    }
++    ck(flymeTerminalConfirmation(flymeState, actions: 3, succeeded: 3, confirm: { fatalError("terminal confirmation before last action") }).reason == "flyme_terminal_dispatch_incomplete")
++    ck(flymeTerminalConfirmation(flymeState, actions: 4, succeeded: 3, confirm: { fatalError("terminal confirmation after failed dispatch") }).reason == "flyme_terminal_dispatch_incomplete")
++    flymeActions = 0; flymeFinalChecks = 0
++    ck(drivePIN(Data(repeating: 48, count: 4), initial: flymeState, observe: { final in
++        if final { flymeFinalChecks += 1; return terminal }
++        var next = flymeState
++        next.target = pinTarget(xml: flymeFixture(flymeActions == 3 ? 2 : flymeActions, deleteVisible: flymeActions > 0), windowText: focus)
++        return next
++    }, send: { _ in flymeActions += 1; return true }) == .partial && flymeActions == 3 && flymeFinalChecks == 0)
+     flymeActions = 0
+     ck(drivePIN(Data(repeating: 48, count: 4), initial: flymeState, observe: { _ in flymeState }, send: { _ in flymeActions += 1; return true }) == .partial && flymeActions == 1)
+     ck(drivePIN(Data(repeating: 48, count: 6), initial: flymeState, observe: { _ in flymeState }, send: { _ in fatalError("length gate failed") }) == .refused)

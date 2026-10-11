@@ -14,6 +14,7 @@ android-unlock authorize-existing --local-user --serial SERIAL
 
 Authorized unlock: one bounded wake-only event and verified PIN-page presentation.
 Strict numeric PIN; Vivo six-slot input verified with temporary source.
+Flyme four-digit profile: exact SystemUI code, trusted field and source-bound append progress; integration runtime unverified.
 Production Keychain permission still requires real verification.
 Read-only commands never query Keychain, wake, swipe, input, or persist UI hierarchy.
 setup: masked local UI, stable installed app only; numeric PIN, primary Android user 0.
@@ -31,6 +32,7 @@ var authorizationProofScope = "not_verified"
 var submitted = false
 var activityAttempted = false
 var activitySucceeded = false
+var inputObservation: [String: Any] = [:]
 var preparation = Preparation(snapshot: Snapshot())
 var listed: [Device]? = nil
 func emit(_ result: String, code: Int32, count: Int? = nil) -> Never {
@@ -45,10 +47,12 @@ func emit(_ result: String, code: Int32, count: Int? = nil) -> Never {
         "wakePlanned": decision(s) == "preparation_needed_wake", "pinPagePresentationPlanned": decision(s) == "preparation_needed_pin_page", "credential": credential, "submitted": submitted,
         "pinPathImplemented": true, "inputSupported": decision(s) == "ready", "securePinTargetVerified": s.target != nil]
     if !credentialDiagnostics.isEmpty { r["credentialDiagnostics"] = credentialDiagnostics.map { $0.json } }
+    if !inputObservation.isEmpty { r["inputObservation"] = inputObservation }
     if command == "authorize-existing" {
         r["proofScope"] = authorizationProofScope; r["persistentPermissionVerified"] = false
     }
     if let display = s.focusDisplayID { r["focusDisplayId"] = display }
+    if s.target?.mode == .flymeFour { r["pinProfile"] = "flyme_four"; r["observedEnteredCount"] = s.target!.count }
     if let user = s.user { r["androidUser"] = user }
     if let count { r["deviceCount"] = count }
     if let listed { r["devices"] = listed.map { ["serial": $0.serial, "state": $0.state] } }
@@ -99,7 +103,9 @@ if args.contains("--authorize") {
         credential = "own_pin_requested_no_interaction"
         var read = fetchPIN(serial); credentialDiagnostics = [read.metadata]; pin = read.pin; read.pin = nil
         return pin != nil
-    }, submit: { guard let pin else { return .refused }; return submitPIN(pin, initial: before) }, confirm: {
+    }, submit: { guard let pin else { return .refused }; return submitPIN(pin, initial: before, report: { observed, actions, succeeded in
+        inputObservation = pinInputMetadata(observed, actions: actions, adbSucceeded: succeeded, now: ProcessInfo.processInfo.systemUptime)
+    }) }, confirm: {
         s = confirmUnlock(initial); return s
     })
     if pin != nil { pin!.resetBytes(in: 0..<pin!.count); pin = nil }

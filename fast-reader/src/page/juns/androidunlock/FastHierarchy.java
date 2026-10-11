@@ -63,6 +63,14 @@ public final class FastHierarchy extends UiAutomatorTestCase {
             throw new IllegalStateException("collector_blocked:" + stage + ":" + category);
         }
     }
+    byte[] dump(AccessibilityNodeInfo root) {
+        nodes = 0; deadline = System.nanoTime() + 1500000000L; xml.setLength(0);
+        try {
+            xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><hierarchy>");
+            walk(root, 0, 0); xml.append("</hierarchy>");
+            return xml.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        } finally { xml.setLength(0); }
+    }
     private void fail() { fail("validation_failed"); }
     private void fail(String code) { failure = code; throw new IllegalStateException("collector_blocked"); }
     private void attr(String name, CharSequence value) {
@@ -96,9 +104,19 @@ public final class FastHierarchy extends UiAutomatorTestCase {
         flag("enabled",n.isEnabled()); flag("focusable",n.isFocusable()); flag("focused",n.isFocused());
         flag("scrollable",n.isScrollable()); flag("long-clickable",n.isLongClickable());
         flag("password",n.isPassword()); flag("selected",n.isSelected());
+        flag("editable",n.isEditable());
+        attr("input-type",Integer.toString(n.getInputType()));
+        attr("max-text-length",Integer.toString(n.getMaxTextLength()));
         stage = "bounds";
         Rect b=new Rect(); n.getBoundsInScreen(b);
-        attr("bounds","["+b.left+","+b.top+"]["+b.right+","+b.bottom+"]"); xml.append('>');
+        attr("bounds","["+b.left+","+b.top+"]["+b.right+","+b.bottom+"]");
+        if ("com.android.systemui".contentEquals(n.getPackageName()) &&
+                "com.android.systemui:id/lockPattern".equals(n.getViewIdResourceName()) &&
+                "android.view.View".contentEquals(n.getClassName())) {
+            Rect local=new Rect(); n.getBoundsInParent(local);
+            attr("bounds-parent","["+local.left+","+local.top+"]["+local.right+","+local.bottom+"]");
+        }
+        xml.append('>');
         stage = "xml_walk";
         int count=n.getChildCount(); if(count<0 || count>4096) fail();
         for(int i=0;i<count;i++) {

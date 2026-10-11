@@ -85,7 +85,7 @@ func readBatch(_ serial: String, _ commands: [(String, String)]) -> [String: Str
     guard output.ok else { return nil }
     return parseBatch(output.data, names: commands.map { $0.0 })
 }
-func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? = nil) -> Snapshot {
+func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? = nil, progress: FlymeNativeProgress? = nil) -> Snapshot {
     var s = Snapshot(); s.serial = serial
     let d = deviceDecision(inventory(), serial: serial)
     guard d == "online" else { s.reason = d; return s }
@@ -114,7 +114,7 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         switch uiReuse(previous, s, window: line, now: ProcessInfo.processInfo.systemUptime) {
         case .blocked: s.reason = "ui_evidence_stale_or_changed"; return s
         case .reuse:
-            s.target = previous.target; s.coverWindow = previous.coverWindow; s.coverBounds = previous.coverBounds; s.coverIsVivo = previous.coverIsVivo
+            s.target = previous.target; s.coverWindow = previous.coverWindow; s.coverBounds = previous.coverBounds; s.coverIsVivo = previous.coverIsVivo; s.coverIsFlyme = previous.coverIsFlyme
             s.observedAt = previous.observedAt; reused = true
         case .refresh: break
         }
@@ -125,23 +125,40 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         guard resourceStatus == "verified" else { s.hierarchyResult = resourceStatus; return s }
         guard collectorDeviceHashMatches(second["hash"]!) else { s.hierarchyResult = "hierarchy_collector_device_code_mismatch"; return s }
         guard let readerArgs = fastReaderArguments(serial) else { s.hierarchyResult = "hierarchy_collector_serial_invalid"; return s }
-        let hierarchy = runADB(readerArgs, timeout: 6, captureErrors: true)
+        let hierarchy: Output
+        let progressCount: Int?
+        if let progress {
+            hierarchy = progress.snapshotOutput(); progressCount = progress.observedCount.flatMap { $0 > 0 ? $0 : nil }
+        } else { hierarchy = runADB(readerArgs, timeout: 6, captureErrors: true); progressCount = nil }
         s.hierarchyStdoutEmpty = hierarchy.data.isEmpty; s.hierarchyStderrPresent = !hierarchy.errorData.isEmpty
-        let parsed = String(data: hierarchy.data, encoding: .utf8).flatMap { parseHierarchy($0) }
+        let parsed = String(data: hierarchy.data, encoding: .utf8).flatMap { parseHierarchy($0, flymeProgressCount: progressCount) }
         s.hierarchyResult = hierarchyDiagnostic(hierarchy.data, stderr: hierarchy.errorData, ok: hierarchy.ok, parsed: parsed)
+        if let progress, !hierarchy.ok { s.hierarchyResult = progress.result }
         guard s.hierarchyResult == "hierarchy_xml_parsed", let parsed else { return s }
-        if coverHierarchy(parsed) { s.coverWindow = line; s.coverBounds = vivoCoverBounds(parsed); s.coverIsVivo = coverHierarchy(parsed, requireVivo: true) }
+        if coverHierarchy(parsed) { s.coverWindow = line; s.coverBounds = vivoCoverBounds(parsed); s.coverIsVivo = coverHierarchy(parsed, requireVivo: true); s.coverIsFlyme = !s.coverIsVivo && parsed.flymeCover }
         s.target = pinTarget(delegate: parsed, windowText: line)
         s.observedAt = ProcessInfo.processInfo.systemUptime
-        if s.target == nil && s.coverWindow == nil { s.hierarchyResult = "hierarchy_secure_target_unverified" }
+        if s.target == nil && s.coverWindow == nil {
+            s.hierarchyResult = parsed.flymeNodes["mz_keyguard_pin_view"] != nil ? "hierarchy_flyme_" + parsed.flymeFailure : "hierarchy_secure_target_unverified"
+        }
     }
     // Recheck state AND full SystemUI identity after UI; cached evidence keeps its original timestamp.
     let postStarted = ProcessInfo.processInfo.systemUptime
-    let post = readBatch(serial, identityCommands + [process] + stateCommands)
+    let flyme = s.coverIsFlyme || s.target?.mode == .flymeFour
+    let post = readBatch(serial, identityCommands + [process] + stateCommands + (flyme ? [flymeCodeCommand, flymePrivateModeCommand, flymeSpeechCommand] : []))
     let postCompleted = ProcessInfo.processInfo.systemUptime
     s.postUIStateCheckSeconds = postCompleted - postStarted
     guard let post, deviceDecision(inventory(), serial: serial) == "online" else {
         s.reason = "post_ui_query_or_device_failed"; s.target = nil; s.coverWindow = nil; s.coverBounds = nil; return s
+    }
+    if flyme, !flymeSystemUICodeMatches(post["flymeCode"] ?? "") {
+        s.reason = "flyme_systemui_code_unverified"; s.target = nil; s.coverWindow = nil; s.coverBounds = nil; return s
+    }
+    if flyme, !flymePrivateModeDisabled(post["flymePrivateMode"]) {
+        s.reason = "flyme_private_mode_unverified"; s.target = nil; s.coverWindow = nil; s.coverBounds = nil; return s
+    }
+    if flyme, !flymeSpeechDisabled(post["flymeSpeech"]) {
+        s.reason = "flyme_speech_privacy_unverified"; s.target = nil; s.coverWindow = nil; s.coverBounds = nil; return s
     }
     var after = parseState(serial: serial, userText: post["user"]!, policyText: post["policy"]!)
     after.userUnlocked = post["started"]!.trimmingCharacters(in: .whitespacesAndNewlines) == "RUNNING_UNLOCKED"
@@ -221,25 +238,30 @@ func retrievePIN(_ serial: String, interactive: Bool) -> CredentialRead {
     })
 }
 func fetchPIN(_ serial: String) -> CredentialRead { retrievePIN(serial, interactive: false) }
-func submitPIN(_ pin: Data, initial: Snapshot) -> InputResult {
+func submitPIN(_ pin: Data, initial: Snapshot, report: ((Snapshot, Int, Int) -> Void)? = nil) -> InputResult {
+    if initial.target?.mode == .flymeFour { return submitFlymeProgressPIN(pin, initial: initial, report: report) }
     let deadline = ProcessInfo.processInfo.systemUptime + 90
-    var last = initial; var first = true
+    var last = initial; var first = true; var actions = 0; var adbSucceeded = 0
     return drivePIN(pin, initial: initial, observe: { finalOEM in
         var now = finalOEM ? confirmUnlock(initial) : snapshot(initial.serial, reusingUI: first ? initial : nil)
         if !finalOEM && !first && now.target != nil { now = snapshot(initial.serial, reusingUI: now) }
         first = false; last = now
         if ProcessInfo.processInfo.systemUptime >= deadline { now.reason = "input_deadline" }
+        report?(now, actions, adbSucceeded)
         return now
     }, send: { key in
         let command: String
-        if last.target?.mode == .vivoSix {
+        if last.target?.mode == .vivoSix || last.target?.mode == .flymeFour {
             guard (7...16).contains(key), let rect = last.target?.keys[key - 7] else { return false }
             let point = rect.center; command = "tap \(point.0) \(point.1)"
         } else { command = "keyevent \(key)" }
         var payload = Data("exec /system/bin/input \(command)\n".utf8)
         defer { payload.resetBytes(in: 0..<payload.count) }
         // One digit-dependent action per private stdin payload; suppressed output, no secret argv.
+        actions += 1
         let r = runADB(["-s", initial.serial, "shell", "-T", "-e", "none", "toybox", "timeout", "-s", "KILL", "2", "/system/bin/sh"], timeout: 4, confidential: payload)
+        if r.ok { adbSucceeded += 1 }
+        report?(last, actions, adbSucceeded)
         return r.ok
     })
 }
@@ -290,8 +312,8 @@ func prepareNative(_ initial: Snapshot) -> Preparation {
             },
             present: {
                 guard immediateCoverObservation(initial, latest, now: ProcessInfo.processInfo.systemUptime) else { return false }
-                if latest.coverIsVivo {
-                    guard latest.coverBounds != nil, let args = wmAuthenticationArguments(initial.serial) else { return false }
+                if latest.coverIsVivo || latest.coverIsFlyme {
+                    guard (!latest.coverIsVivo || latest.coverBounds != nil), let args = wmAuthenticationArguments(initial.serial) else { return false }
                     let output = runADB(args, timeout: 4, captureErrors: true)
                     return wmAuthenticationCommandOK(stdout: output.data, stderr: output.errorData, ok: output.ok)
                 }

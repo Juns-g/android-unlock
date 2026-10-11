@@ -2,7 +2,7 @@
 
 [English](THIRD_PARTY_NOTICES.md) | [简体中文](THIRD_PARTY_NOTICES.zh-CN.md)
 
-`FastHierarchy.java` 是本项目原创、有界且只读的节点遍历器。随附 `collector.jar` 的 `classes.dex` 中只有这个自定义类，另附标准 JAR 元数据。它不包含系统框架导出器、Android stub 实现、Appium、smali 或其他研究项目代码。原创采集器和助手采用 MIT 许可证。
+`FastHierarchy.java`是本项目原创、有界且只读的节点遍历器。`FlymeProgressSession.java`是原创的有界会话采集器，仅观察数值无障碍事件元数据及受守卫的层级快照，不读取事件text或beforeText。随附`collector.jar`的`classes.dex`中只有这两个原创类及生成的监听器类，另附标准JAR元数据。它不包含系统框架导出器、Android stub 实现、Appium、smali 或其他研究项目代码。原创采集器和助手采用 MIT 许可证。
 
 `fast-reader/stubs/` 是 Juns-g 于 2026 年为本项目编写的最小编译声明，描述标准 Android API。它们不包含从上游复制的实现或文件头，单独采用 [Apache License 2.0](fast-reader/stubs/LICENSE)。这些类不进入 DEX，也不作为替代平台实现发布。实际 Android 运行时和 SDK 工具不随本仓库分发。以下链接是 API 参考，不表示本仓库复制了对应代码：
 

@@ -1,8 +1,24 @@
 import Foundation
 import CryptoKit
 
-let collectorSHA256 = "5582c29de27b979f4a583b3fc16c483d3103d04035b7e294c5e22904fa24a276"
+let collectorSHA256 = "128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def"
 let collectorDevicePath = "/data/local/tmp/page.juns.android-unlock-" + collectorSHA256 + ".jar"
+let flymeSystemUIPath = "/system_ext/priv-app/SystemUI/SystemUI.apk"
+let flymeSystemUISHA256 = "3f31b7cee25e0c70bf56bda87350ef5011cca24858ac2d80e3751f363c7c9b30"
+let flymeCodeCommand = ("flymeCode", "toybox sha256sum " + flymeSystemUIPath)
+let flymeSpeechCommand = ("flymeSpeech", "settings --user 0 get secure speak_password")
+func flymeSpeechDisabled(_ value: String?) -> Bool {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+    return value == "0" || value == "null"
+}
+let flymePrivateModeCommand = ("flymePrivateMode", "settings get global mz_private_mode")
+func flymePrivateModeDisabled(_ text: String?) -> Bool {
+    guard let value = text?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+    return value == "0" || value == "null" // The audited constructor/observer defaults an unset key to zero.
+}
+func flymeSystemUICodeMatches(_ text: String) -> Bool {
+    text.split(whereSeparator: { $0.isWhitespace }).map(String.init) == [flymeSystemUISHA256, flymeSystemUIPath]
+}
 func collectorResourceResult(_ data: Data?) -> String {
     guard let data else { return "hierarchy_collector_resource_missing" }
     let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -27,8 +43,8 @@ func processCommand(_ pid: String) -> (String, String)? {
     return ("process", "ps -p " + pid + " -o UID,PID,NAME")
 }
 func batchArguments(_ serial: String, commands: [(String, String)]) -> [String]? {
-    guard validSerial(serial), !commands.isEmpty, commands.count <= 10 else { return nil }
-    let allowed = stateCommands + identityCommands + [("hash", "toybox sha256sum " + collectorDevicePath)]
+    guard validSerial(serial), !commands.isEmpty, commands.count <= 12 else { return nil }
+    let allowed = stateCommands + identityCommands + [("hash", "toybox sha256sum " + collectorDevicePath), flymeCodeCommand, flymePrivateModeCommand, flymeSpeechCommand]
     guard Set(commands.map { $0.0 }).count == commands.count, commands.allSatisfy({ part in
         allowed.contains { $0 == part } || (part.0 == "process" && part.1.hasPrefix("ps -p ") && processCommand(String(part.1.dropFirst(6).prefix(while: { $0 != " " })))?.1 == part.1)
     }) else { return nil }
@@ -95,6 +111,7 @@ struct Snapshot: Equatable {
     var observedAt = 0.0
     var coverBounds: UIBounds? = nil
     var coverIsVivo = false
+    var coverIsFlyme = false
     var coverWindow: String? = nil
     var focusResult = "not_queried"
     var focusSource = "none"
@@ -106,6 +123,7 @@ struct Snapshot: Equatable {
     var bootComplete = false
     var reason = "unknown"
     var userUnlocked = false
+    var progressPhase = "not_used"
     var target: PinTarget? = nil
 }
 // AOSP delegate dump contains cached values; a present monitor must be complete and scoped.
@@ -185,7 +203,53 @@ func uiBounds(_ text: String) -> UIBounds? {
     guard v.count == 4, v[0] < v[2], v[1] < v[3], v[2] <= 16384, v[3] <= 16384 else { return nil }
     return UIBounds(x1: v[0], y1: v[1], x2: v[2], y2: v[3])
 }
-enum PinMode { case aosp, vivoSix }
+struct FlymeProgressHeader: Equatable { let sequence: Int; let count: Int; let error: Int; let length: Int }
+func progressHeader(_ text: String, sequence: Int) -> FlymeProgressHeader? {
+    let parts = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    guard parts.count == 5, parts[0] == "__AU_FLYME_V1__",
+          let seq = Int(parts[1]), seq == sequence, (1...20).contains(seq), String(seq) == parts[1],
+          let count = Int(parts[2]), (0...4).contains(count), String(count) == parts[2],
+          let error = Int(parts[3]), (0...7).contains(error), String(error) == parts[3],
+          let length = Int(parts[4]), (0...262144).contains(length), String(length) == parts[4],
+          error == 0 || length == 0 else { return nil }
+    return FlymeProgressHeader(sequence: seq, count: count, error: error, length: length)
+}
+func flymeMaskedProgress(_ text: String, observedCount: Int?) -> Int? {
+    guard text.count <= 4, text.allSatisfy({ $0 == "•" }) else { return nil }
+    guard let observedCount else { return text.count }
+    guard (1...4).contains(observedCount), text.isEmpty || text.count == observedCount else { return nil }
+    return observedCount
+}
+func freshFlymeInputProof(_ s: Snapshot, expected: Int, now: Double) -> Bool {
+    preparationGate(s) == "eligible" && s.awake && s.focusResult == "focus_identity_verified" && s.focusDisplayID == 0 &&
+        s.postUIStateChecked && s.postUIVerifiedAt >= s.observedAt && s.observedAt > 0 && now >= s.postUIVerifiedAt && now - s.observedAt <= 2 &&
+        s.target?.mode == .flymeFour && s.target?.count == expected && s.target?.keys.count == 10
+}
+enum PinMode { case aosp, vivoSix, flymeFour }
+func flymeTouchKeys(screen: UIBounds, local: UIBounds) -> [Int: UIBounds]? {
+    guard local.x1 == 0, local.y1 == 0, local.x2 == screen.x2 - screen.x1,
+          local.y2 == screen.y2 - screen.y1 else { return nil }
+    // Exact audited zero-padding keypad: three columns, four rows, circular hit radius.
+    let width = Float(local.x2) / 3, height = Float(local.y2) / 4
+    let radius = width * 0.6 / 2
+    var keys: [Int: UIBounds] = [:]
+    for digit in 0...9 {
+        let index = digit == 0 ? 10 : digit - 1, row = index / 3, column = index % 3
+        let rect = UIBounds(x1: screen.x1 + Int(Float(column) * width), y1: screen.y1 + Int(Float(row) * height),
+                            x2: screen.x1 + Int(Float(column + 1) * width), y2: screen.y1 + Int(Float(row + 1) * height))
+        let point = rect.center
+        guard rect.x1 < rect.x2, rect.y1 < rect.y2, screen.contains(rect) else { return nil }
+        var hits: [Int] = []
+        for cell in 0..<12 {
+            let dx = Float(point.0 - screen.x1) - (Float(cell % 3) * width + width / 2)
+            let dy = Float(point.1 - screen.y1) - (Float(cell / 3) * height + height / 2)
+            if dx * dx + dy * dy < radius * radius { hits.append(cell) }
+        }
+        guard hits == [index] else { return nil }
+        keys[digit] = rect
+    }
+    return keys
+}
 struct PinTarget: Equatable {
     let window: String; let field: String; let count: Int
     var mode: PinMode = .aosp
@@ -205,6 +269,31 @@ final class PinXML: NSObject, XMLParserDelegate {
     var rectangles: [String: UIBounds] = [:]
     var stack: [String] = []; var seen: [String: Int] = [:]
     var vivoTarget: (String, Int)? = nil; var harmlessFocus = 0
+    var flymeTarget: (String, Int)? = nil
+    var flymeFailure = "not_observed"
+    var flymeInvalid = false
+    var verifiedFlymeProgressCount: Int? = nil
+    let flymeChain = ["keyguard_bouncer_container", "keyguard_host_view", "keyguard_security_container", "view_flipper", "mz_keyguard_pin_view", "keyguard_bouncer_frame", "keyguard_bouncer_rl", "inputBox"]
+    var flymeNodes: [String: Int] = [:]
+    var flymeRectangles: [String: UIBounds] = [:]
+    var flymeKeyboardLocal: UIBounds? = nil
+    var flymeCover: Bool {
+        guard !flymeInvalid, ["keyguard_background_frame", "keyguard_header", "keyguard_selector_fade_container"].allSatisfy({ flymeNodes[$0] == 1 }),
+              let area = flymeRectangles["keyguard_background_frame"], let header = flymeRectangles["keyguard_header"],
+              let footer = flymeRectangles["keyguard_selector_fade_container"] else { return false }
+        return area.contains(header) && area.contains(footer) && !header.overlaps(footer)
+    }
+    var validFlyme: Bool {
+        guard !flymeInvalid, let target = flymeTarget, flymeChain.allSatisfy({ flymeNodes[$0] == 1 }), flymeNodes["passwordEntry"] == 1,
+              flymeNodes["lockPattern"] == 1, let field = uiBounds(target.0), let area = flymeRectangles["mz_keyguard_pin_view"],
+              let keyboard = flymeRectangles["lockPattern"], let local = flymeKeyboardLocal,
+              flymeTouchKeys(screen: keyboard, local: local) != nil, area.contains(keyboard), !field.overlaps(keyboard),
+              flymeChain.allSatisfy({ flymeRectangles[$0]?.contains(field) == true }) else { return false }
+        // The OEM sets delete visible on append; empty accessibility text must not contradict it.
+        if target.1 == 0 { return flymeNodes["delete"] == nil }
+        guard flymeNodes["delete"] == 1, let delete = flymeRectangles["delete"] else { return false }
+        return area.contains(delete) && !keyboard.overlaps(delete)
+    }
     let prefix = "com.android.systemui:id/"
     var hasVivoCover: Bool {
         ["vivo_keyguard_overlay", "vivo_keyguard_host_container", "com.vivo.systemuiplugin:id/keyguard_os5"].contains { seen[$0] != nil }
@@ -226,6 +315,55 @@ final class PinXML: NSObject, XMLParserDelegate {
         let raw = a["resource-id"] ?? ""; let id = raw.hasPrefix(prefix) ? String(raw.dropFirst(prefix.count)) : raw
         let ancestors = stack; stack.append(id)
         if a["password"] == "true" { pinPresent = true }
+        let flymeOnly = ["keyguard_host_view", "view_flipper", "mz_keyguard_pin_view", "keyguard_bouncer_frame", "keyguard_bouncer_rl", "inputBox", "passwordEntry", "lockPattern", "delete", "keyguard_background_frame", "keyguard_selector_fade_container"]
+        let flymeSecurity = id == "keyguard_security_container" && a["class"] == "android.widget.FrameLayout" && ancestors.last == "keyguard_host_view"
+        if raw.hasPrefix(prefix), flymeOnly.contains(id) || flymeSecurity || id == "keyguard_bouncer_container" || id == "keyguard_header" {
+            func rejectFlyme(_ reason: String) {
+                flymeInvalid = true; flymeFailure = reason
+                if id == "passwordEntry" || id == "mz_keyguard_pin_view" || ancestors.contains("mz_keyguard_pin_view") || a["focused"] == "true" { bad = true }
+            }
+            flymeNodes[id, default: 0] += 1
+            if let rect = uiBounds(a["bounds"] ?? "") { flymeRectangles[id] = rect }
+            if id == "keyguard_header", a["package"] != "com.android.systemui" || a["class"] != "android.widget.RelativeLayout" || a["enabled"] != "true" || a["password"] != "false" || a["focused"] != "false" || a["clickable"] != "false" { flymeInvalid = true }
+            if flymeOnly.contains(id) || flymeSecurity {
+                let cls: String
+                switch id {
+                case "passwordEntry": cls = "android.widget.EditText"
+                case "mz_keyguard_pin_view": cls = "android.widget.LinearLayout"
+                case "view_flipper": cls = "android.widget.ViewFlipper"
+                case "inputBox", "keyguard_bouncer_rl": cls = "android.widget.RelativeLayout"
+                case "lockPattern": cls = "android.view.View"
+                case "delete": cls = "android.widget.ImageView"
+                default: cls = "android.widget.FrameLayout"
+                }
+                guard a["package"] == "com.android.systemui", a["class"] == cls, a["enabled"] == "true", flymeRectangles[id] != nil,
+                      a["password"] == (id == "passwordEntry" ? "true" : "false") else { rejectFlyme("node_attributes"); return }
+                if let index = flymeChain.firstIndex(of: id), index > 0 {
+                    guard Array(ancestors.suffix(index)) == Array(flymeChain.prefix(index)) else { rejectFlyme("ancestry"); return }
+                }
+                if id == "passwordEntry" {
+                    pinPresent = true
+                    guard Array(ancestors.suffix(flymeChain.count)) == flymeChain,
+                          a["focused"] == "true", a["focusable"] == "true", a["clickable"] == "false",
+                          a["editable"] == "true", a["input-type"] == "16", a["max-text-length"] == "-1",
+                          let text = a["text"], text.count <= 4, text.allSatisfy({ $0 == "•" }) else {
+                        rejectFlyme("field_or_mask"); return
+                    }
+                    guard let count = flymeMaskedProgress(text, observedCount: verifiedFlymeProgressCount) else { rejectFlyme("progress_mask_conflict"); return }
+                    flymeTarget = (a["bounds"]!, count); flymeFailure = "structure_or_empty_conflict"; return
+                }
+                guard a["focused"] == "false" else { rejectFlyme("unexpected_focus"); return }
+                if ["lockPattern", "delete"].contains(id) {
+                    guard ancestors.contains("mz_keyguard_pin_view"), ancestors.contains("keyguard_security_container") else { rejectFlyme("ancestry"); return }
+                    if id == "lockPattern" {
+                        guard Array(ancestors.suffix(flymeChain.count - 1)) == Array(flymeChain.dropLast()),
+                              let local = uiBounds(a["bounds-parent"] ?? "") else { rejectFlyme("keyboard_geometry"); return }
+                        flymeKeyboardLocal = local
+                    }
+                } else if a["clickable"] != "false" { rejectFlyme("node_attributes"); return }
+                return
+            }
+        }
         let known = ["keyguard_bouncer_container", "keyguard_security_container", "vivo_pin_view", "vivo_pin_keyboard", "vivo_keyguard_overlay", "vivo_keyguard_host_container", "com.vivo.systemuiplugin:id/keyguard_os5"] +
             (1...6).flatMap { ["password\($0)", "password\($0)bg"] } + (0...9).map { "VivoPinkey\($0)" }
         if known.contains(id) {
@@ -279,11 +417,11 @@ final class PinXML: NSObject, XMLParserDelegate {
         if element == "node" { stack.removeLast() }
     }
 }
-func parseHierarchy(_ xml: String) -> PinXML? {
+func parseHierarchy(_ xml: String, flymeProgressCount: Int? = nil) -> PinXML? {
     guard let start = xml.range(of: "<?xml"), let end = xml.range(of: "</hierarchy>"), start.lowerBound < end.upperBound else { return nil }
     let fragment = String(xml[start.lowerBound..<end.upperBound])
     guard !fragment.contains("<!DOCTYPE"), !fragment.contains("<!ENTITY") else { return nil }
-    let delegate = PinXML(); let parser = XMLParser(data: Data(fragment.utf8)); parser.shouldResolveExternalEntities = false; parser.delegate = delegate
+    let delegate = PinXML(); delegate.verifiedFlymeProgressCount = flymeProgressCount; let parser = XMLParser(data: Data(fragment.utf8)); parser.shouldResolveExternalEntities = false; parser.delegate = delegate
     return parser.parse() ? delegate : nil
 }
 func pinTarget(xml: String, windowText: String) -> PinTarget? {
@@ -293,6 +431,12 @@ func pinTarget(xml: String, windowText: String) -> PinTarget? {
 func pinTarget(delegate: PinXML, windowText: String) -> PinTarget? {
     let lines = windowText.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("mCurrentFocus=") }
     guard !delegate.bad, lines.count == 1, lines[0].range(of: #"^mCurrentFocus=Window\{(?:com\.android\.systemui:)?[0-9a-f]+ u0 [^{}\r\n]+\}$"#, options: .regularExpression) != nil else { return nil }
+    if delegate.validFlyme, delegate.targets.isEmpty, delegate.vivoTarget == nil, delegate.harmlessFocus == 0, let target = delegate.flymeTarget {
+        guard let keyboard = delegate.flymeRectangles["lockPattern"], let local = delegate.flymeKeyboardLocal,
+              let keys = flymeTouchKeys(screen: keyboard, local: local) else { return nil }
+        return PinTarget(window: lines[0], field: target.0, count: target.1, mode: .flymeFour, keys: keys)
+    }
+    guard delegate.flymeTarget == nil, delegate.flymeNodes["mz_keyguard_pin_view"] == nil else { return nil }
     if delegate.validVivo, delegate.targets.isEmpty, let target = delegate.vivoTarget {
         guard let area = uiBounds(target.0), let keyboard = delegate.rectangles["vivo_pin_keyboard"], area.contains(keyboard),
               let placeholder = delegate.rectangles["password1bg"], area.contains(placeholder) else { return nil }
@@ -429,12 +573,26 @@ func verifyExistingAuthorization(interactiveRead: () -> CredentialRead, noninter
 }
 func validPIN(_ data: Data) -> Bool { (4...16).contains(data.count) && data.allSatisfy { (48...57).contains($0) } }
 enum InputResult { case refused, partial, submitted }
+func pinInputMetadata(_ s: Snapshot, actions: Int, adbSucceeded: Int, now: Double) -> [String: Any] {
+    let trusted = s.reason == "observed" && s.focusResult == "focus_identity_verified" && s.postUIStateChecked &&
+        s.postUIVerifiedAt >= s.observedAt && s.observedAt > 0 && now >= s.postUIVerifiedAt && now - s.observedAt <= 2
+    var result: [String: Any] = ["actionsAttempted": actions, "adbSucceeded": adbSucceeded, "reason": s.reason,
+        "hierarchyResult": s.hierarchyResult, "lockState": s.state.rawValue, "awake": s.awake,
+        "postUIStateChecked": s.postUIStateChecked, "sampleFresh": trusted]
+    if s.progressPhase != "not_used" {
+        result["phase"] = s.progressPhase
+        result["samplePrecedesLastAction"] = s.progressPhase == "dispatch_adb_result_pre_input_sample"
+    }
+    if trusted, let target = s.target { result["observedEnteredCount"] = target.count }
+    return result
+}
 // One observed OEM has six-slot auto-submit; never dispatch Enter for that mode.
 func drivePIN(_ pin: Data, initial: Snapshot, observe: (Bool) -> Snapshot, send: (Int) -> Bool) -> InputResult {
-    guard validPIN(pin), let target = initial.target, target.mode != .vivoSix || pin.count == 6 else { return .refused }
+    guard validPIN(pin), let target = initial.target, target.mode != .vivoSix || pin.count == 6,
+          target.mode != .flymeFour || pin.count == 4 else { return .refused }
     var sent = false
     for index in 0...pin.count {
-        let finalOEM = index == pin.count && target.mode == .vivoSix
+        let finalOEM = index == pin.count && (target.mode == .vivoSix || target.mode == .flymeFour)
         let now = observe(finalOEM)
         guard consistent(initial, now), now.reason == "observed" else { return sent ? .partial : .refused }
         if index == pin.count && now.state == .unlocked { return .submitted }
@@ -475,7 +633,7 @@ func verifiedWindow(_ text: String, target: PinTarget, pid: String, uid: Int) ->
     guard uid > 0, uid < 100000, Int(pid).map({ $0 > 0 }) == true else { return false }
     let owner = try! NSRegularExpression(pattern: #"\bmOwnerUid=(\d+)\b"#)
     let sessions = try! NSRegularExpression(pattern: #"mSession=Session\{[0-9a-f]+ (\d+):([^} ]+)\}"#)
-    let types = try! NSRegularExpression(pattern: #"\bty=([A-Z_]+)\b"#)
+    let types = try! NSRegularExpression(pattern: #"\bty=([^\s{}]*)"#)
     let ns = block as NSString; let range = NSRange(location: 0, length: ns.length)
     let owners = owner.matches(in: block, range: range)
     let session = sessions.matches(in: block, range: range)
@@ -483,7 +641,7 @@ func verifiedWindow(_ text: String, target: PinTarget, pid: String, uid: Int) ->
     guard owners.count == 1, session.count == 1, roles.count == 1,
           ns.substring(with: owners[0].range(at: 1)) == String(uid),
           ns.substring(with: session[0].range(at: 1)) == pid,
-          ns.substring(with: roles[0].range(at: 1)) == "NOTIFICATION_SHADE" else { return false }
+          ["NOTIFICATION_SHADE", "2040"].contains(ns.substring(with: roles[0].range(at: 1))) else { return false }
     let uidToken = ns.substring(with: session[0].range(at: 2))
     // Observed decimal and vivo u0a<full numeric UID>; never normalize unproven tokens.
     return uidToken == String(uid) || uidToken == "u0a\(uid)"
