@@ -29,7 +29,12 @@ import Foundation
     ck(deviceDecision(devices("List of devices attached\na device\nb device\n"), serial: "b") == "online")
     ck(deviceDecision(devices("List of devices attached\na device\nb device\n"), serial: "c") == "device_missing")
     ck(devices("List of devices attached\na device\na device\n") == nil)
-    ck(!validSerial("a;sh")); ck(!validPIN(Data("12x4".utf8))); ck(validPIN(Data("0123".utf8)))
+    let spaced = "List of devices attached\n10.0.0.8:5555 device product:example\nadb-EXAMPLE (2)._adb-tls-connect._tcp device product:example\n"
+    ck(deviceDecision(devices(spaced), serial: "10.0.0.8:5555") == "online")
+    ck(deviceDecision(devices(spaced), serial: "adb-EXAMPLE (2)._adb-tls-connect._tcp") == "online")
+    ck(devices("List of devices attached\na;sh device\n") == nil)
+    ck(devices("List of devices attached\n device\n") == nil)
+    ck(!validSerial("a;sh")); ck(!validSerial(" serial")); ck(!validSerial("serial ")); ck(!validPIN(Data("12x4".utf8))); ck(validPIN(Data("0123".utf8)))
     var unlocked = s; unlocked.state = .unlocked; unlocked.target = nil
     var reads = 0; var inputs = 0
     func run(_ initial: Snapshot, auth: Bool = true, fresh: Snapshot? = nil, result: InputResult = .submitted, after: Snapshot? = nil) -> (String, Bool) {
