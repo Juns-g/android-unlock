@@ -14,6 +14,8 @@ On 2026-10-11 the source baseline completed one fresh-process, noninteractive Ke
 
 ## Build and install
 
+**Latest Vivo acceptance (2026-10-13):** restoring the original locally approved Vivo bundle completed one ordinary black/locked → fresh-process noninteractive Keychain read → `unlocked_confirmed/exit0` flow in 36.509 seconds, followed by independent secure/user0/unlocked status. No new owner approval or PIN change was needed. [Latest validation and version distinction](docs/vivo-validation.md) explains why this local result is not a live acceptance of a newly rebuilt public signature, nor resolution of Flyme's known CLI false negative. This update changes documentation only, not the working installed App.
+
 From this checkout:
 
 ```sh
