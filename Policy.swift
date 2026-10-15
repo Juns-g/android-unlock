@@ -289,6 +289,8 @@ final class PinXML: NSObject, XMLParserDelegate {
     var hyperosKeys: [Int: UIBounds] = [:]
     var hyperosDeleteClickable = false
     var hyperosDeleteExtras: [UIBounds] = []
+    var hyperosFooterCancel: UIBounds? = nil
+    var hyperosFooterDelete: UIBounds? = nil
     var hyperosInvalid = false
     var hyperosFailure = "not_observed"
     func hyperosKeyDigit(_ id: String) -> Int? {
@@ -340,6 +342,21 @@ final class PinXML: NSObject, XMLParserDelegate {
             hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect; return
         }
         let inPin = ancestors.contains("keyguard_pin_view") && hyperosNodes["keyguard_pin_view"] == 1
+        if inPin, id == "cancel_button" || id == "delete_button" && !ancestors.contains("delete_container") {
+            guard ancestors.last == "keyguard_selector_fade_container", plain(),
+                  a["class"] == "android.widget.TextView", a["clickable"] == "true",
+                  a["focusable"] == "true", a["focused"] == "false", let rect = bounds(),
+                  hyperosNodes[id] == nil else { reject("footer_state_unverified", focusedIsBad: true); return }
+            hyperosNodes[id] = 1
+            if id == "cancel_button" { hyperosFooterCancel = rect }
+            else {
+                hyperosFooterDelete = rect
+                // Shaped HyperOS PIN fields can report empty accessibility text after input.
+                // A visible footer delete button proves that empty text is not an empty PIN.
+                if hyperosField?.1 == 0 { reject("entered_progress_unavailable") }
+            }
+            return
+        }
         if id == "delete_container" {
             guard inPin, ancestors.contains("pin_container"), hyperosNodes["pin_container"] == 1,
                   plain(), a["class"] == "android.widget.FrameLayout", a["focused"] == "false",
@@ -382,8 +399,16 @@ final class PinXML: NSObject, XMLParserDelegate {
         guard bouncer.contains(security), security.contains(flipper), flipper.contains(pinView), pinView.contains(area),
               area.contains(fade), fade.contains(emergency), area.contains(fieldBounds), area.contains(delete),
               !fieldBounds.overlaps(delete), !fieldBounds.overlaps(emergency), !delete.overlaps(emergency) else { return false }
-        if field.1 == 0 { guard !hyperosDeleteClickable else { return false } }
-        else { guard hyperosDeleteClickable else { return false } }
+        if field.1 == 0 {
+            guard !hyperosDeleteClickable, hyperosFooterCancel != nil, hyperosFooterDelete == nil else { return false }
+        } else {
+            guard hyperosFooterCancel == nil, hyperosDeleteClickable || hyperosFooterDelete != nil else { return false }
+        }
+        for footerButton in [hyperosFooterCancel, hyperosFooterDelete].compactMap({ $0 }) {
+            guard fade.contains(footerButton), !footerButton.overlaps(emergency),
+                  !footerButton.overlaps(fieldBounds), !footerButton.overlaps(delete),
+                  !hyperosKeys.values.contains(where: { footerButton.overlaps($0) }) else { return false }
+        }
         for extra in hyperosDeleteExtras {
             guard delete.contains(extra), !extra.overlaps(fieldBounds), !extra.overlaps(emergency) else { return false }
             for key in hyperosKeys.values where extra.overlaps(key) { return false }
