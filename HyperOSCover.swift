@@ -52,7 +52,8 @@ private final class HyperOSCoverXML: NSObject, XMLParserDelegate {
         if element == "node" { stack.removeLast() }
     }
     var verified: Bool {
-        guard !invalid, focusedCount <= 1, let root = rectangles["chain0"], root.x1 == 0, root.y1 == 0,
+        // The OEM can expose both verified controls as focused at once; neither receives input here.
+        guard !invalid, focusedCount <= 2, let root = rectangles["chain0"], root.x1 == 0, root.y1 == 0,
               rectangles["chain1"] == root, rectangles["chain2"] == root,
               let strip = rectangles["chain3"], rectangles["chain4"] == strip, rectangles["chain5"] == strip,
               strip.x1 == root.x1, strip.x2 == root.x2, strip.y2 == root.y2, strip.y1 > root.center.1,
