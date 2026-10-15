@@ -1,5 +1,17 @@
 # HyperOS standalone validation
 
+## Accepted physical unlock and terminal receipt limit
+
+On 2026-10-16, the owner-authorized, unchanged standalone App built from `749f2f4c1ba6ca46b9619f541bae23933a6c4722` physically unlocked the MIX Flip / Android 16 / HyperOS `OS3.0.305.0.WNICNXM`. The controlled start was online, secure user 0, locked and screen off. A fresh process read the Keychain noninteractively (`read_success`, status 0), prepared the verified empty keypad and dispatched six standard digit key events. Before reaching the sixth action, the guarded loop had verified the preceding source-bound progress and full identity/freshness checks. The authorized command took 40.578 seconds.
+
+The original CLI result remains `partial_input_aborted_no_retry` / exit 3, with `pinProfile=hyperos_pin`, `actionsAttempted=6`, `adbSucceeded=6`, and `inputObservation.reason=hyperos_progress_source_unverified`. The sixth source acknowledgement was not verified. The exact event invalidation mechanism has not been established; withdrawal of the authenticated field during the transition is a plausible explanation, not a proven event trace.
+
+An immediate separate `status` process reported `observed`, online, awake, secure, Android user 0 and unlocked. An additional keyguard read reported `showing=false`, `mIsShowing=false`, `mInputRestricted=false` and `occluded=false`. This establishes physical completion while preserving the CLI error. No additional digit, clear, retry or automatic relock followed. The temporarily isolated keepalive job was restored.
+
+For this exact tested six-digit baseline and receipt combination only, obtain one fresh read-only `android-unlock-hyperos status --serial SERIAL` for the same explicit target. If it independently reports observed/online/awake/secure/user0/unlocked, report the phone as physically unlocked and the CLI as a terminal false negative. Never rewrite the original JSON/exit code or invent a sixth acknowledgement. A locked or unknown result, incomplete dispatch, another error, or identity/user changes remains stopped. This is not a general wrapper for treating exit 3 as success.
+
+Keep the already authorized working App frozen. No PIN enrollment or further Keychain approval is needed for this installed baseline. Correcting the CLI terminal classification would require a separately reviewed implementation and new-signature acceptance; it is deferred rather than replacing this working installation solely to polish the receipt. Earlier sections below record the preceding investigation stages; their pending results do not supersede this accepted physical test.
+
 This branch combines the strict HyperOS keypad profile from `1912ed9` with the previously accepted ColorOS code, and provides an optional separately signed HyperOS App so an enrolled default helper can remain unchanged.
 
 The HyperOS profile recognizes the observed `keyguard_pin_view` / `pin_container` ancestry, an empty or bullet-only `PasswordTextView` `pinEntry`, ten distinct resource-ID digit targets, and matching delete/emergency geometry. The current candidate sends standard digit key events through the pinned OEM keypad handler and requires source-bound entered-count evidence before each next action. It neither clears an existing prefix nor dispatches Enter after the final digit. Unknown identity, focus, state, geometry or progress stops the attempt.
