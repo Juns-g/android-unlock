@@ -115,6 +115,7 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         case .blocked: s.reason = "ui_evidence_stale_or_changed"; return s
         case .reuse:
             s.target = previous.target; s.coverWindow = previous.coverWindow; s.coverBounds = previous.coverBounds; s.coverIsVivo = previous.coverIsVivo; s.coverIsFlyme = previous.coverIsFlyme
+            s.coverIsColorOS = previous.coverIsColorOS; s.colorOSRevealButton = previous.colorOSRevealButton
             s.observedAt = previous.observedAt; reused = true
         case .refresh: break
         }
@@ -137,6 +138,18 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         guard s.hierarchyResult == "hierarchy_xml_parsed", let parsed else { return s }
         if coverHierarchy(parsed) { s.coverWindow = line; s.coverBounds = vivoCoverBounds(parsed); s.coverIsVivo = coverHierarchy(parsed, requireVivo: true); s.coverIsFlyme = !s.coverIsVivo && parsed.flymeCover }
         s.target = pinTarget(delegate: parsed, windowText: line)
+        if s.target == nil, !parsed.bad {
+            s.target = colorOSPinTarget(String(decoding: hierarchy.data, as: UTF8.self), window: line)
+        }
+        if s.target == nil, !parsed.bad, !parsed.pinPresent,
+           let area = colorOSCoverBounds(String(decoding: hierarchy.data, as: UTF8.self)) {
+            s.coverWindow = line; s.coverBounds = area; s.coverIsColorOS = true
+        }
+        if s.target == nil, !parsed.bad, !parsed.pinPresent,
+           let invitation = colorOSInvitation(String(decoding: hierarchy.data, as: UTF8.self)) {
+            s.coverWindow = line; s.coverBounds = invitation.bounds; s.coverIsColorOS = true
+            s.colorOSRevealButton = invitation.button
+        }
         s.observedAt = ProcessInfo.processInfo.systemUptime
         if s.target == nil && s.coverWindow == nil {
             s.hierarchyResult = parsed.flymeNodes["mz_keyguard_pin_view"] != nil ? "hierarchy_flyme_" + parsed.flymeFailure : "hierarchy_secure_target_unverified"
@@ -251,7 +264,7 @@ func submitPIN(_ pin: Data, initial: Snapshot, report: ((Snapshot, Int, Int) -> 
         return now
     }, send: { key in
         let command: String
-        if last.target?.mode == .vivoSix || last.target?.mode == .flymeFour {
+        if last.target?.mode == .vivoSix || last.target?.mode == .flymeFour || last.target?.mode == .colorOSSix {
             guard (7...16).contains(key), let rect = last.target?.keys[key - 7] else { return false }
             let point = rect.center; command = "tap \(point.0) \(point.1)"
         } else { command = "keyevent \(key)" }
@@ -312,6 +325,18 @@ func prepareNative(_ initial: Snapshot) -> Preparation {
             },
             present: {
                 guard immediateCoverObservation(initial, latest, now: ProcessInfo.processInfo.systemUptime) else { return false }
+                if latest.coverIsColorOS {
+                    return prepareColorOSPage(initial: initial, current: &latest,
+                        now: { ProcessInfo.processInfo.systemUptime }, observe: { snapshot(initial.serial) },
+                        request: {
+                            guard let args = wmAuthenticationArguments(initial.serial) else { return false }
+                            let output = runADB(args, timeout: 4, captureErrors: true)
+                            return wmAuthenticationCommandOK(stdout: output.data, stderr: output.errorData, ok: output.ok)
+                        }, tap: { rect in
+                            let point = rect.center
+                            return runADB(["-s", initial.serial, "shell", "-T", "-e", "none", "toybox", "timeout", "-s", "KILL", "2", "/system/bin/input", "tap", String(point.0), String(point.1)], timeout: 4).ok
+                        })
+                }
                 if latest.coverIsVivo || latest.coverIsFlyme {
                     guard (!latest.coverIsVivo || latest.coverBounds != nil), let args = wmAuthenticationArguments(initial.serial) else { return false }
                     let output = runADB(args, timeout: 4, captureErrors: true)

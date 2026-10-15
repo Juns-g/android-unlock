@@ -76,19 +76,22 @@ func postUICompatible(_ before: Snapshot, _ after: Snapshot, sameIdentity: Bool,
 enum LockState: String, Codable { case locked, unlocked, unknown }
 struct Device: Equatable { let serial: String; let state: String }
 func validSerial(_ s: String) -> Bool {
-    !s.isEmpty && s.utf8.count <= 128 && s.utf8.allSatisfy {
-        (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [45,46,58,95].contains($0)
+    !s.isEmpty && s.utf8.count <= 128 && !s.hasPrefix(" ") && !s.hasSuffix(" ") && !s.contains("  ") && s.utf8.allSatisfy {
+        (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [32, 40, 41, 45, 46, 58, 95].contains($0)
     }
 }
 func devices(_ text: String) -> [Device]? {
     let lines = text.split(separator: "\n").map(String.init)
     guard lines.first == "List of devices attached" else { return nil }
     var result: [Device] = []
+    let states = ["device", "offline", "unauthorized", "no"]
     for line in lines.dropFirst() where !line.trimmingCharacters(in: .whitespaces).isEmpty {
         let p = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-        guard p.count >= 2, validSerial(p[0]), !result.contains(where: { $0.serial == p[0] }),
-              ["device", "offline", "unauthorized", "no"].contains(p[1]) else { return nil }
-        result.append(Device(serial: p[0], state: p[1]))
+        // adb inserts " (N)" into duplicate mDNS serials, so the state is the first known token, not field 2.
+        guard let stateIndex = p.firstIndex(where: { states.contains($0) }), stateIndex > 0 else { return nil }
+        let serial = p[..<stateIndex].joined(separator: " ")
+        guard validSerial(serial), !result.contains(where: { $0.serial == serial }) else { return nil }
+        result.append(Device(serial: serial, state: p[stateIndex]))
     }
     return result
 }
@@ -112,6 +115,8 @@ struct Snapshot: Equatable {
     var coverBounds: UIBounds? = nil
     var coverIsVivo = false
     var coverIsFlyme = false
+    var coverIsColorOS = false
+    var colorOSRevealButton: UIBounds? = nil
     var coverWindow: String? = nil
     var focusResult = "not_queried"
     var focusSource = "none"
@@ -225,7 +230,7 @@ func freshFlymeInputProof(_ s: Snapshot, expected: Int, now: Double) -> Bool {
         s.postUIStateChecked && s.postUIVerifiedAt >= s.observedAt && s.observedAt > 0 && now >= s.postUIVerifiedAt && now - s.observedAt <= 2 &&
         s.target?.mode == .flymeFour && s.target?.count == expected && s.target?.keys.count == 10
 }
-enum PinMode { case aosp, vivoSix, flymeFour }
+enum PinMode { case aosp, vivoSix, flymeFour, colorOSSix }
 func flymeTouchKeys(screen: UIBounds, local: UIBounds) -> [Int: UIBounds]? {
     guard local.x1 == 0, local.y1 == 0, local.x2 == screen.x2 - screen.x1,
           local.y2 == screen.y2 - screen.y1 else { return nil }
@@ -586,13 +591,13 @@ func pinInputMetadata(_ s: Snapshot, actions: Int, adbSucceeded: Int, now: Doubl
     if trusted, let target = s.target { result["observedEnteredCount"] = target.count }
     return result
 }
-// One observed OEM has six-slot auto-submit; never dispatch Enter for that mode.
+// OEM keypad profiles auto-submit their final digit; never dispatch Enter for those modes.
 func drivePIN(_ pin: Data, initial: Snapshot, observe: (Bool) -> Snapshot, send: (Int) -> Bool) -> InputResult {
-    guard validPIN(pin), let target = initial.target, target.mode != .vivoSix || pin.count == 6,
+    guard validPIN(pin), let target = initial.target, (target.mode != .vivoSix && target.mode != .colorOSSix) || pin.count == 6,
           target.mode != .flymeFour || pin.count == 4 else { return .refused }
     var sent = false
     for index in 0...pin.count {
-        let finalOEM = index == pin.count && (target.mode == .vivoSix || target.mode == .flymeFour)
+        let finalOEM = index == pin.count && (target.mode == .vivoSix || target.mode == .flymeFour || target.mode == .colorOSSix)
         let now = observe(finalOEM)
         guard consistent(initial, now), now.reason == "observed" else { return sent ? .partial : .refused }
         if index == pin.count && now.state == .unlocked { return .submitted }
@@ -713,7 +718,12 @@ func focusObservation(windows: String, displays: String) -> FocusObservation {
         let indent = line.prefix(while: { $0 == " " }).count
         if let range = text.range(of: #"^Display: mDisplayId=\d+"#, options: .regularExpression) {
             display = Int(text[range].split(separator: "=").last!); depth = indent
-        } else if !text.isEmpty && indent < depth { display = nil }
+        } else if !text.isEmpty && indent < depth {
+            // ColorOS prints exactly mIsDensityForced=true|false at column 0 inside an open display block.
+            // A combined, malformed, or unrelated outdented line still ends that scope and cannot open one.
+            let exactDensityBoolean = display != nil && text.range(of: #"^mIsDensityForced=(true|false)$"#, options: .regularExpression) != nil
+            if !exactDensityBoolean { display = nil }
+        }
         if text.hasPrefix("mCurrentFocus=") {
             guard let display else { r.result = "focus_display_unscoped"; return r }
             scoped.append((text, display))

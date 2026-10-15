@@ -3,6 +3,8 @@ import Foundation
  static func main() {
     var n = 0
     func ck(_ b: Bool) { precondition(b, "check \(n + 1) failed"); n += 1 }
+    runColorOSChecks(ck)
+    runColorOSPinChecks(ck)
     let fixture = """
       KeyguardServiceDelegate
         showing=true
@@ -29,7 +31,12 @@ import Foundation
     ck(deviceDecision(devices("List of devices attached\na device\nb device\n"), serial: "b") == "online")
     ck(deviceDecision(devices("List of devices attached\na device\nb device\n"), serial: "c") == "device_missing")
     ck(devices("List of devices attached\na device\na device\n") == nil)
-    ck(!validSerial("a;sh")); ck(!validPIN(Data("12x4".utf8))); ck(validPIN(Data("0123".utf8)))
+    let spaced = "List of devices attached\n10.0.0.8:5555 device product:example\nadb-EXAMPLE (2)._adb-tls-connect._tcp device product:example\n"
+    ck(deviceDecision(devices(spaced), serial: "10.0.0.8:5555") == "online")
+    ck(deviceDecision(devices(spaced), serial: "adb-EXAMPLE (2)._adb-tls-connect._tcp") == "online")
+    ck(devices("List of devices attached\na;sh device\n") == nil)
+    ck(devices("List of devices attached\n device\n") == nil)
+    ck(!validSerial("a;sh")); ck(!validSerial(" serial")); ck(!validSerial("serial ")); ck(!validPIN(Data("12x4".utf8))); ck(validPIN(Data("0123".utf8)))
     var unlocked = s; unlocked.state = .unlocked; unlocked.target = nil
     var reads = 0; var inputs = 0
     func run(_ initial: Snapshot, auth: Bool = true, fresh: Snapshot? = nil, result: InputResult = .submitted, after: Snapshot? = nil) -> (String, Bool) {
@@ -156,6 +163,39 @@ import Foundation
     ck(focusObservation(windows: windowDump + "\n" + focus.replacingOccurrences(of: "abc", with: "bad"), displays: displayDump).result == "focus_sources_conflict")
     ck(focusObservation(windows: windowDump, displays: displayDump.replacingOccurrences(of: "u0 NotificationShade", with: "u10 NotificationShade")).line == nil)
     ck(focusObservation(windows: windowDump, displays: displayDump.replacingOccurrences(of: "NotificationShade", with: "FIXTURE_PRIVATE_APP")).result == "focused_window_ambiguous")
+    let colorOSDisplay = "WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)\n  Display: mDisplayId=0 (organized)\n    init=1440x3168 cur=1440x3168 app=1440x3069 rng=0x0-0x0\n"
+    for density in ["mIsDensityForced=false", "mIsDensityForced=true"] {
+        let observed = focusObservation(windows: windowDump, displays: colorOSDisplay + density + "\n  " + focus)
+        ck(observed.line == focus && observed.source == "displays" && observed.displayID == 0 && observed.result == "focus_collected")
+        ck(focusObservation(windows: windowDump, displays: density + "\n  " + focus).result == "focus_display_unscoped")
+    }
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=true\nmIsDensityForced=false\n  " + focus).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false \n  " + focus).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: "mIsDensityForced=false\n" + displayDump).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: "  Display: mDisplayId=0\n  mIsDensityForced=false\n  " + focus).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: "  Display: mDisplayId=0\n    mIsDensityForced=true\n  " + focus).result == "focus_collected")
+    let agreed = focusObservation(windows: windowDump + "\n" + focus, displays: colorOSDisplay + "mIsDensityForced=true\n  " + focus)
+    ck(agreed.line == focus && agreed.source == "windows" && agreed.displayID == 0 && agreed.result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false").result == "focus_missing")
+    for density in ["mIsDensityForced=false extra", "mIsDensityForced=false mBaseDisplayDensity=0", "mIsDensityForced=", "mIsDensityForced=False", "mIsDensityForced=1", "mIsDensityForced=truefalse", "mIsDensityForced=false,true", "not mIsDensityForced=false", "mIsDensityForced=false\textra"] {
+        ck(focusObservation(windows: windowDump, displays: colorOSDisplay + density + "\n  " + focus).result == "focus_display_unscoped")
+    }
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "ARBITRARY_SECTION\n  " + focus).result == "focus_display_unscoped")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\nARBITRARY_SECTION\n  " + focus).result == "focus_display_unscoped")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "ARBITRARY_SECTION\nmIsDensityForced=true\n  " + focus).result == "focus_display_unscoped")
+    let displayOne = colorOSDisplay.replacingOccurrences(of: "mDisplayId=0", with: "mDisplayId=1")
+    ck(focusObservation(windows: windowDump, displays: displayOne + "mIsDensityForced=true\n  " + focus).result == "focus_default_display_unverified")
+    ck(focusObservation(windows: windowDump, displays: displayOne + "mIsDensityForced=false\n  " + focus).result == "focus_default_display_unverified")
+    ck(focusObservation(windows: windowDump + "\n" + focus.replacingOccurrences(of: "abc", with: "bad"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus).result == "focus_sources_conflict")
+    ck(focusObservation(windows: windowDump + "\n" + focus + "\n" + focus.replacingOccurrences(of: "abc", with: "def"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus).result == "focus_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus + "\n  " + focus.replacingOccurrences(of: "abc", with: "def")).result == "focus_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus + "\n" + displayOne + "mIsDensityForced=true\n  " + focus).result == "focus_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus.replacingOccurrences(of: "NotificationShade", with: "FIXTURE_PRIVATE_APP")).result == "focused_window_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=true\n  " + focus.replacingOccurrences(of: "u0", with: "u10")).result == "focus_window_user_or_shape_unverified")
+    ck(focusObservation(windows: windowDump.replacingOccurrences(of: "mDisplayId=0", with: "mDisplayId=1"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus).result == "focused_window_display_mismatch")
+    let namespacedColorOS = focus.replacingOccurrences(of: "Window{abc", with: "Window{com.android.systemui:ab12cd3")
+    ck(focusObservation(windows: windowDump.replacingOccurrences(of: "Window{abc", with: "Window{com.android.systemui:ab12cd3"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + namespacedColorOS).line == namespacedColorOS)
+    ck(focusObservation(windows: windowDump.replacingOccurrences(of: "Window{abc", with: "Window{arbitrary.app:ab12cd3"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus.replacingOccurrences(of: "Window{abc", with: "Window{arbitrary.app:ab12cd3")).result == "focus_window_user_or_shape_unverified")
     ck(hierarchyDiagnostic(Data(), stderr: Data(), ok: true) == "hierarchy_stdout_empty")
     ck(hierarchyDiagnostic(Data(), stderr: Data("No such device or address".utf8), ok: true) == "hierarchy_fd_not_reopenable")
     ck(hierarchyDiagnostic(Data("FIXTURE_PRIVATE_TEXT".utf8), stderr: Data(), ok: true) == "hierarchy_no_xml")
@@ -172,6 +212,7 @@ import Foundation
     let vivoFocus = "mCurrentFocus=Window{abc u0 NotificationShade fixture title}"
     let vivoWindow = "Window #0 Window{abc u0 NotificationShade fixture title}:\n  mDisplayId=0\n  mOwnerUid=10123\n  mSession=Session{def 4321:u0a10123}\n  mAttrs={ty=NOTIFICATION_SHADE}"
     ck(focusObservation(windows: vivoWindow, displays: "  Display: mDisplayId=0\n  " + vivoFocus).line == vivoFocus)
+    ck(focusObservation(windows: vivoWindow, displays: "  Display: mDisplayId=0\nmIsDensityForced=true\n  " + vivoFocus).line == vivoFocus)
     let vivoTarget = PinTarget(window: vivoFocus, field: "", count: 0)
     ck(verifiedWindow(vivoWindow, target: vivoTarget, pid: "4321", uid: 10123))
     let numericRoleWindow = vivoWindow.replacingOccurrences(of: "ty=NOTIFICATION_SHADE", with: "ty=2040")

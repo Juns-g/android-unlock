@@ -53,6 +53,7 @@ func emit(_ result: String, code: Int32, count: Int? = nil) -> Never {
     }
     if let display = s.focusDisplayID { r["focusDisplayId"] = display }
     if s.target?.mode == .flymeFour { r["pinProfile"] = "flyme_four"; r["observedEnteredCount"] = s.target!.count }
+    if s.target?.mode == .colorOSSix { r["pinProfile"] = "coloros_six"; r["observedEnteredCount"] = s.target!.count }
     if let user = s.user { r["androidUser"] = user }
     if let count { r["deviceCount"] = count }
     if let listed { r["devices"] = listed.map { ["serial": $0.serial, "state": $0.state] } }
