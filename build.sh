@@ -12,6 +12,6 @@ mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 swift "$source_dir/BuildConfig.swift" "$adb_candidate" "$app_dir/Contents/Info.plist"
 cp "$collector_source" "$app_dir/Contents/Resources/fast-reader.jar"
 [ "$(/usr/bin/shasum -a 256 "$app_dir/Contents/Resources/fast-reader.jar" | /usr/bin/cut -d ' ' -f 1)" = "$collector_sha" ] || exit 65
-swiftc -O "$source_dir/Policy.swift" "$source_dir/ColorOS.swift" "$source_dir/Native.swift" "$source_dir/NativeProgress.swift" "$source_dir/main.swift" -o "$app_dir/Contents/MacOS/android-unlock"
+swiftc -O "$source_dir/Policy.swift" "$source_dir/ColorOS.swift" "$source_dir/HyperOSCover.swift" "$source_dir/Native.swift" "$source_dir/NativeProgress.swift" "$source_dir/main.swift" -o "$app_dir/Contents/MacOS/android-unlock"
 codesign --force --sign - --identifier page.juns.AndroidUnlockHelper --timestamp=none "$app_dir"
 codesign --verify --deep --strict "$app_dir"

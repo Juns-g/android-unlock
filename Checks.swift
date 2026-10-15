@@ -5,6 +5,7 @@ import Foundation
     func ck(_ b: Bool, line: UInt = #line) { precondition(b, "check \(n + 1) failed at Checks.swift:\(line)"); n += 1 }
     runColorOSChecks { ck($0) }
     runColorOSPinChecks { ck($0) }
+    runHyperOSCoverChecks { ck($0) }
     #if HYPEROS_STANDALONE
     ck(identity == "page.juns.AndroidUnlockHyperOSHelper")
     ck(stablePath.hasSuffix("/Applications/AndroidUnlockHyperOSHelper.app/Contents/MacOS/android-unlock"))

@@ -116,6 +116,7 @@ struct Snapshot: Equatable {
     var coverIsVivo = false
     var coverIsFlyme = false
     var coverIsColorOS = false
+    var coverIsHyperOS = false
     var colorOSRevealButton: UIBounds? = nil
     var coverWindow: String? = nil
     var focusResult = "not_queried"

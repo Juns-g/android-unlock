@@ -122,6 +122,7 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         case .reuse:
             s.target = previous.target; s.coverWindow = previous.coverWindow; s.coverBounds = previous.coverBounds; s.coverIsVivo = previous.coverIsVivo; s.coverIsFlyme = previous.coverIsFlyme
             s.coverIsColorOS = previous.coverIsColorOS; s.colorOSRevealButton = previous.colorOSRevealButton
+            s.coverIsHyperOS = previous.coverIsHyperOS
             s.observedAt = previous.observedAt; reused = true
         case .refresh: break
         }
@@ -157,6 +158,9 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
             s.colorOSRevealButton = invitation.button
         }
         s.observedAt = ProcessInfo.processInfo.systemUptime
+        if s.target == nil, !parsed.pinPresent, hyperOSCoverVerified(String(decoding: hierarchy.data, as: UTF8.self)) {
+            s.coverWindow = line; s.coverIsHyperOS = true
+        }
         if s.target == nil && s.coverWindow == nil {
             if parsed.flymeNodes["mz_keyguard_pin_view"] != nil { s.hierarchyResult = "hierarchy_flyme_" + parsed.flymeFailure }
             else if parsed.hyperosNodes["keyguard_pin_view"] != nil { s.hierarchyResult = "hierarchy_hyperos_" + parsed.hyperosFailure }
@@ -345,7 +349,7 @@ func prepareNative(_ initial: Snapshot) -> Preparation {
                             return runADB(["-s", initial.serial, "shell", "-T", "-e", "none", "toybox", "timeout", "-s", "KILL", "2", "/system/bin/input", "tap", String(point.0), String(point.1)], timeout: 4).ok
                         })
                 }
-                if latest.coverIsVivo || latest.coverIsFlyme {
+                if latest.coverIsVivo || latest.coverIsFlyme || latest.coverIsHyperOS {
                     guard (!latest.coverIsVivo || latest.coverBounds != nil), let args = wmAuthenticationArguments(initial.serial) else { return false }
                     let output = runADB(args, timeout: 4, captureErrors: true)
                     return wmAuthenticationCommandOK(stdout: output.data, stderr: output.errorData, ok: output.ok)
