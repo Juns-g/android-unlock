@@ -3,9 +3,15 @@ import AppKit
 import Security
 import Darwin
 
+#if HYPEROS_STANDALONE
+let identity = "page.juns.AndroidUnlockHyperOSHelper"
+let helperAppName = "AndroidUnlockHyperOSHelper"
+#else
 let identity = "page.juns.AndroidUnlockHelper"
+let helperAppName = "AndroidUnlockHelper"
+#endif
 let service = "page.juns.android-unlock.pin.v1"
-let stablePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/AndroidUnlockHelper.app/Contents/MacOS/android-unlock").path
+let stablePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/" + helperAppName + ".app/Contents/MacOS/android-unlock").path
 let adbPath = Bundle.main.object(forInfoDictionaryKey: "AndroidUnlockADBPath") as? String ?? ""
 // Build-pinned real path and private environment: no runtime PATH search or ADB_TRACE.
 func trustedADB() -> Bool {
@@ -152,7 +158,9 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         }
         s.observedAt = ProcessInfo.processInfo.systemUptime
         if s.target == nil && s.coverWindow == nil {
-            s.hierarchyResult = parsed.flymeNodes["mz_keyguard_pin_view"] != nil ? "hierarchy_flyme_" + parsed.flymeFailure : "hierarchy_secure_target_unverified"
+            if parsed.flymeNodes["mz_keyguard_pin_view"] != nil { s.hierarchyResult = "hierarchy_flyme_" + parsed.flymeFailure }
+            else if parsed.hyperosNodes["keyguard_pin_view"] != nil { s.hierarchyResult = "hierarchy_hyperos_" + parsed.hyperosFailure }
+            else { s.hierarchyResult = "hierarchy_secure_target_unverified" }
         }
     }
     // Recheck state AND full SystemUI identity after UI; cached evidence keeps its original timestamp.
@@ -264,7 +272,7 @@ func submitPIN(_ pin: Data, initial: Snapshot, report: ((Snapshot, Int, Int) -> 
         return now
     }, send: { key in
         let command: String
-        if last.target?.mode == .vivoSix || last.target?.mode == .flymeFour || last.target?.mode == .colorOSSix {
+        if last.target?.mode == .vivoSix || last.target?.mode == .flymeFour || last.target?.mode == .colorOSSix || last.target?.mode == .hyperos {
             guard (7...16).contains(key), let rect = last.target?.keys[key - 7] else { return false }
             let point = rect.center; command = "tap \(point.0) \(point.1)"
         } else { command = "keyevent \(key)" }

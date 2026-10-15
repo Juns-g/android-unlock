@@ -230,7 +230,7 @@ func freshFlymeInputProof(_ s: Snapshot, expected: Int, now: Double) -> Bool {
         s.postUIStateChecked && s.postUIVerifiedAt >= s.observedAt && s.observedAt > 0 && now >= s.postUIVerifiedAt && now - s.observedAt <= 2 &&
         s.target?.mode == .flymeFour && s.target?.count == expected && s.target?.keys.count == 10
 }
-enum PinMode { case aosp, vivoSix, flymeFour, colorOSSix }
+enum PinMode { case aosp, vivoSix, flymeFour, colorOSSix, hyperos }
 func flymeTouchKeys(screen: UIBounds, local: UIBounds) -> [Int: UIBounds]? {
     guard local.x1 == 0, local.y1 == 0, local.x2 == screen.x2 - screen.x1,
           local.y2 == screen.y2 - screen.y1 else { return nil }
@@ -282,6 +282,117 @@ final class PinXML: NSObject, XMLParserDelegate {
     var flymeNodes: [String: Int] = [:]
     var flymeRectangles: [String: UIBounds] = [:]
     var flymeKeyboardLocal: UIBounds? = nil
+    var hyperosField: (String, Int)? = nil
+    var hyperosNodes: [String: Int] = [:]
+    var hyperosRects: [String: UIBounds] = [:]
+    var hyperosKeys: [Int: UIBounds] = [:]
+    var hyperosDeleteClickable = false
+    var hyperosDeleteExtras: [UIBounds] = []
+    var hyperosInvalid = false
+    var hyperosFailure = "not_observed"
+    func hyperosKeyDigit(_ id: String) -> Int? {
+        guard id.count == 4, id.hasPrefix("key"), let digit = Int(id.dropFirst(3)), id == "key\(digit)" else { return nil }
+        return digit
+    }
+    func recordHyperOS(_ id: String, _ a: [String: String], _ ancestors: [String]) {
+        func bounds() -> UIBounds? { uiBounds(a["bounds"] ?? "") }
+        func plain() -> Bool {
+            a["package"] == "com.android.systemui" && a["enabled"] == "true" && a["password"] == "false"
+        }
+        func reject(_ reason: String, focusedIsBad: Bool = false) {
+            hyperosInvalid = true; hyperosFailure = reason
+            if focusedIsBad || a["focused"] == "true" { bad = true }
+        }
+        if id == "keyguard_bouncer_container" {
+            guard plain(), a["class"] == "android.widget.FrameLayout", a["focused"] == "false", a["clickable"] == "false", let rect = bounds() else { return }
+            hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect; return
+        }
+        if id == "keyguard_security_container" {
+            guard ancestors.last == "keyguard_bouncer_container", hyperosNodes["keyguard_bouncer_container"] == 1,
+                  plain(), a["class"] == "android.view.ViewGroup", a["focused"] == "false", a["clickable"] == "false", let rect = bounds() else { return }
+            hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect; return
+        }
+        if id == "view_flipper" {
+            guard ancestors.last == "keyguard_security_container", hyperosNodes["keyguard_security_container"] == 1,
+                  plain(), a["class"] == "android.widget.ViewFlipper", a["focused"] == "false", a["clickable"] == "false", let rect = bounds() else { return }
+            hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect; return
+        }
+        if id == "keyguard_pin_view" {
+            guard ancestors.last == "view_flipper", hyperosNodes["view_flipper"] == 1,
+                  plain(), a["class"] == "android.widget.LinearLayout", a["focused"] == "false", a["clickable"] == "false", let rect = bounds() else {
+                if ancestors.last == "view_flipper" { reject("node_attributes") }
+                return
+            }
+            hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect; return
+        }
+        if id == "pin_container" {
+            guard ancestors.last == "keyguard_pin_view", hyperosNodes["keyguard_pin_view"] == 1,
+                  plain(), a["class"] == "android.widget.LinearLayout", a["focused"] == "false", a["clickable"] == "false", let rect = bounds() else {
+                if ancestors.contains("keyguard_pin_view") { reject("node_attributes") }
+                return
+            }
+            hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect; return
+        }
+        if id == "keyguard_selector_fade_container" {
+            guard ancestors.last == "pin_container", hyperosNodes["pin_container"] == 1,
+                  plain(), a["class"] == "android.widget.LinearLayout", a["focused"] == "false", a["clickable"] == "false", let rect = bounds() else { return }
+            hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect; return
+        }
+        let inPin = ancestors.contains("keyguard_pin_view") && hyperosNodes["keyguard_pin_view"] == 1
+        if id == "delete_container" {
+            guard inPin, ancestors.contains("pin_container"), hyperosNodes["pin_container"] == 1,
+                  plain(), a["class"] == "android.widget.FrameLayout", a["focused"] == "false",
+                  a["clickable"] == "true" || a["focusable"] == "false", let rect = bounds() else {
+                if inPin { reject("delete_conflict", focusedIsBad: true) }
+                return
+            }
+            hyperosNodes[id, default: 0] += 1; hyperosRects[id] = rect
+            if a["clickable"] == "true" { hyperosDeleteClickable = true }
+            return
+        }
+        if ancestors.contains("delete_container"), a["clickable"] == "true" {
+            guard inPin, let rect = bounds(), hyperosRects["delete_container"]?.contains(rect) == true else {
+                if inPin { reject("delete_conflict") }
+                return
+            }
+            hyperosDeleteClickable = true; hyperosDeleteExtras.append(rect); return
+        }
+        if let digit = hyperosKeyDigit(id) {
+            guard inPin, hyperosKeys[digit] == nil, ancestors.contains("pin_container"),
+                  plain(), a["class"] == "android.view.ViewGroup", a["clickable"] == "true", a["focusable"] == "true", a["focused"] == "false",
+                  let rect = bounds() else {
+                if inPin { reject("key_geometry", focusedIsBad: true) }
+                return
+            }
+            hyperosNodes[id, default: 0] += 1; hyperosKeys[digit] = rect
+        }
+    }
+    var validHyperOS: Bool {
+        guard !hyperosInvalid, let field = hyperosField, hyperosNodes["pinEntry"] == 1, hyperosNodes["delete_container"] == 1,
+              hyperosNodes["emergency_call_button"] == 1, hyperosNodes["keyguard_selector_fade_container"] == 1,
+              hyperosKeys.count == 10, (0...9).allSatisfy({ hyperosKeys[$0] != nil }) else { return false }
+        let chain = ["keyguard_bouncer_container", "keyguard_security_container", "view_flipper", "keyguard_pin_view", "pin_container"]
+        guard chain.allSatisfy({ hyperosNodes[$0] == 1 }),
+              let bouncer = hyperosRects["keyguard_bouncer_container"], let security = hyperosRects["keyguard_security_container"],
+              let flipper = hyperosRects["view_flipper"], let pinView = hyperosRects["keyguard_pin_view"],
+              let area = hyperosRects["pin_container"], let fade = hyperosRects["keyguard_selector_fade_container"],
+              let fieldBounds = uiBounds(field.0), let delete = hyperosRects["delete_container"],
+              let emergency = hyperosRects["emergency_call_button"] else { return false }
+        guard bouncer.contains(security), security.contains(flipper), flipper.contains(pinView), pinView.contains(area),
+              area.contains(fade), fade.contains(emergency), area.contains(fieldBounds), area.contains(delete),
+              !fieldBounds.overlaps(delete), !fieldBounds.overlaps(emergency), !delete.overlaps(emergency) else { return false }
+        if field.1 == 0 { guard !hyperosDeleteClickable else { return false } }
+        else { guard hyperosDeleteClickable else { return false } }
+        for extra in hyperosDeleteExtras {
+            guard delete.contains(extra), !extra.overlaps(fieldBounds), !extra.overlaps(emergency) else { return false }
+            for key in hyperosKeys.values where extra.overlaps(key) { return false }
+        }
+        for digit in 0...9 {
+            guard let key = hyperosKeys[digit], area.contains(key), !key.overlaps(fieldBounds), !key.overlaps(delete), !key.overlaps(emergency), !key.overlaps(fade) else { return false }
+            for other in 0..<digit { guard !key.overlaps(hyperosKeys[other]!) else { return false } }
+        }
+        return true
+    }
     var flymeCover: Bool {
         guard !flymeInvalid, ["keyguard_background_frame", "keyguard_header", "keyguard_selector_fade_container"].allSatisfy({ flymeNodes[$0] == 1 }),
               let area = flymeRectangles["keyguard_background_frame"], let header = flymeRectangles["keyguard_header"],
@@ -320,6 +431,30 @@ final class PinXML: NSObject, XMLParserDelegate {
         let raw = a["resource-id"] ?? ""; let id = raw.hasPrefix(prefix) ? String(raw.dropFirst(prefix.count)) : raw
         let ancestors = stack; stack.append(id)
         if a["password"] == "true" { pinPresent = true }
+        recordHyperOS(id, a, ancestors)
+        if id == "pinEntry", a["class"] == "com.android.keyguard.PasswordTextView" {
+            pinPresent = true
+            hyperosNodes["pinEntry", default: 0] += 1
+            let chain = ["keyguard_bouncer_container", "keyguard_security_container", "view_flipper", "keyguard_pin_view", "pin_container"]
+            guard hyperosNodes["pinEntry"] == 1, a["package"] == "com.android.systemui", a["enabled"] == "true",
+                  a["password"] == "true", a["focused"] == "true", a["focusable"] == "true", a["clickable"] == "false",
+                  chain.allSatisfy({ ancestors.contains($0) }), chain.allSatisfy({ hyperosNodes[$0] == 1 }),
+                  let text = a["text"], text.count <= 16, text.allSatisfy({ $0 == "•" }),
+                  let bounds = a["bounds"], uiBounds(bounds) != nil else {
+                bad = true; hyperosInvalid = true; hyperosFailure = "field_or_mask"; return
+            }
+            hyperosField = (bounds, text.count); return
+        }
+        if id == "emergency_call_button", ancestors.contains("keyguard_pin_view"), hyperosNodes["keyguard_pin_view"] == 1 {
+            hyperosNodes[id, default: 0] += 1
+            guard hyperosNodes[id] == 1, a["package"] == "com.android.systemui", a["class"] == "android.widget.Button",
+                  a["enabled"] == "true", a["password"] == "false", a["clickable"] == "true", a["focusable"] == "true",
+                  ancestors.contains("pin_container"), ancestors.contains("keyguard_selector_fade_container"),
+                  let rect = uiBounds(a["bounds"] ?? "") else {
+                bad = true; hyperosInvalid = true; hyperosFailure = "unexpected_focus"; return
+            }
+            hyperosRects[id] = rect; return
+        }
         let flymeOnly = ["keyguard_host_view", "view_flipper", "mz_keyguard_pin_view", "keyguard_bouncer_frame", "keyguard_bouncer_rl", "inputBox", "passwordEntry", "lockPattern", "delete", "keyguard_background_frame", "keyguard_selector_fade_container"]
         let flymeSecurity = id == "keyguard_security_container" && a["class"] == "android.widget.FrameLayout" && ancestors.last == "keyguard_host_view"
         if raw.hasPrefix(prefix), flymeOnly.contains(id) || flymeSecurity || id == "keyguard_bouncer_container" || id == "keyguard_header" {
@@ -457,7 +592,12 @@ func pinTarget(delegate: PinXML, windowText: String) -> PinTarget? {
         for i in 0...9 { for j in 0..<i { guard !keys[i]!.overlaps(keys[j]!) else { return nil } } }
         return PinTarget(window: lines[0], field: target.0, count: target.1, mode: .vivoSix, keys: keys, placeholder: placeholder)
     }
-    guard delegate.vivoTarget == nil, delegate.harmlessFocus == 0, delegate.targets.count == 1 else { return nil }
+    guard delegate.vivoTarget == nil, delegate.harmlessFocus == 0 else { return nil }
+    if (delegate.hyperosNodes["keyguard_pin_view"] ?? 0) > 0 {
+        guard delegate.validHyperOS, delegate.targets.isEmpty, let field = delegate.hyperosField else { return nil }
+        return PinTarget(window: lines[0], field: field.0, count: field.1, mode: .hyperos, keys: delegate.hyperosKeys)
+    }
+    guard delegate.targets.count == 1 else { return nil }
     return PinTarget(window: lines[0], field: delegate.targets[0].0, count: delegate.targets[0].1)
 }
 func preparationGate(_ s: Snapshot) -> String {
@@ -595,9 +735,10 @@ func pinInputMetadata(_ s: Snapshot, actions: Int, adbSucceeded: Int, now: Doubl
 func drivePIN(_ pin: Data, initial: Snapshot, observe: (Bool) -> Snapshot, send: (Int) -> Bool) -> InputResult {
     guard validPIN(pin), let target = initial.target, (target.mode != .vivoSix && target.mode != .colorOSSix) || pin.count == 6,
           target.mode != .flymeFour || pin.count == 4 else { return .refused }
+    let autoSubmit = target.mode == .vivoSix || target.mode == .flymeFour || target.mode == .colorOSSix || target.mode == .hyperos
     var sent = false
     for index in 0...pin.count {
-        let finalOEM = index == pin.count && (target.mode == .vivoSix || target.mode == .flymeFour || target.mode == .colorOSSix)
+        let finalOEM = index == pin.count && autoSubmit
         let now = observe(finalOEM)
         guard consistent(initial, now), now.reason == "observed" else { return sent ? .partial : .refused }
         if index == pin.count && now.state == .unlocked { return .submitted }
@@ -700,6 +841,7 @@ func canSettleWake(_ initial: Snapshot, _ current: Snapshot) -> Bool {
     initial.state == .locked && current.state == .locked && initial.secure && current.secure &&
     ["observed", "screen_state_unknown"].contains(current.reason)
 }
+
 
 struct FocusObservation {
     var line: String? = nil

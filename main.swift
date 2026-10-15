@@ -2,6 +2,11 @@ import Foundation
 import Darwin
 let args = Array(CommandLine.arguments.dropFirst())
 if args == ["help"] || args == ["--help"] {
+    #if HYPEROS_STANDALONE
+    let cliName = "android-unlock-hyperos"
+    #else
+    let cliName = "android-unlock"
+    #endif
     print("""
 android-unlock help
 android-unlock devices
@@ -22,7 +27,7 @@ authorize-existing: USER ONLY; interactive read then one same-process noninterac
 Success never proves persistent or next-process permission; unlocked secure phone required.
 No secret CLI/env/file arguments; existing authorized ADB only. No server setup/restart.
 Exit: 0 observed/ready/confirmed; 2 blocked; 3 attempted unconfirmed; 64 usage.
-"""); exit(0)
+""".replacingOccurrences(of: "android-unlock", with: cliName)); exit(0)
 }
 let command = args.first ?? ""
 var s = Snapshot()
@@ -54,6 +59,7 @@ func emit(_ result: String, code: Int32, count: Int? = nil) -> Never {
     if let display = s.focusDisplayID { r["focusDisplayId"] = display }
     if s.target?.mode == .flymeFour { r["pinProfile"] = "flyme_four"; r["observedEnteredCount"] = s.target!.count }
     if s.target?.mode == .colorOSSix { r["pinProfile"] = "coloros_six"; r["observedEnteredCount"] = s.target!.count }
+    if s.target?.mode == .hyperos { r["pinProfile"] = "hyperos_pin"; r["observedEnteredCount"] = s.target!.count }
     if let user = s.user { r["androidUser"] = user }
     if let count { r["deviceCount"] = count }
     if let listed { r["devices"] = listed.map { ["serial": $0.serial, "state": $0.state] } }

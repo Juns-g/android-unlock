@@ -8,7 +8,7 @@
 
 - Mac 需安装 Swift/Xcode 命令行工具、官方 Android platform-tools 中的 `adb`，并且 **`127.0.0.1:5037` 上已有运行中的本地 ADB 服务**。仅开启 USB 调试，不代表手机已信任此 Mac 的 RSA 身份或设备已在线。助手不会启动、重启、替换或重定向该服务。构建时固定的客户端可执行文件，可能与启动共享服务的可执行文件不同；服务端和宿主机也必须可信。
 - 必须明确指定准确的设备 serial；仅支持 Android 主用户 0、安全的普通锁屏，以及本次开机后已经正常解锁过的 Android 用户。重启后的首次解锁必须手动完成。不支持密码、图案、生物识别或其他用户。
-- 已在 Android 16 上实测一种 Vivo 六槽数字 PIN 界面；新增魅族17／Android13／Flyme10.5.0.0A的精确四位纯数字配置，以受守卫的正常触摸和同源无障碍进度工作。代码中也有严格的 AOSP PIN 解析逻辑；其他变体尚未验证。日常使用不要求屏幕常亮：一次已授权尝试可以唤醒一次，并请求系统认证界面一次。
+- 已在 Android 16 上实测一种 Vivo 六槽数字 PIN 界面；新增魅族17／Android13／Flyme10.5.0.0A的精确四位纯数字配置，以受守卫的正常触摸和同源无障碍进度工作。HyperOS 数字配置认一种已观察过的 Android 16 键盘：空的 `PasswordTextView` `pinEntry`、十个互不重叠的 `key0`–`key9`，并且在出现掩码进度之前删除键不可点。代码中也有严格的 AOSP PIN 解析逻辑；其他变体尚未验证。日常使用不要求屏幕常亮：一次已授权尝试可以唤醒一次，并请求系统认证界面一次。
 
 本分支增加已观察到的 ColorOS 六位 PIN 界面及中文辅助功能计数。2026-10-15，本人录入后保持签名不变的 Find helper 已在新进程中完成一次从黑屏锁定开始的无线解锁：非交互读取钥匙串、六次数字输入成功、返回 `unlocked_confirmed`／exit 0，随后独立确认 keyguard 已解锁。ColorOS 在一次系统认证页请求后，可能还需要点一次经独立校验的 `showPasswordButton`。该验收针对已安装的签名与设备界面，不代表任意重新构建都已获授权。详见 [ColorOS 验证与本人准备](docs/coloros-validation.md)。
 
@@ -43,6 +43,12 @@ sh install.sh "$PWD/build" --stage "$PWD/build/stage"
 
 ## 本人一次性准备
 
+### 与已授权版本并存的 HyperOS helper
+
+已有其他手机的默认 helper 已授权时，可用 `build-hyperos.sh`、`check-hyperos.sh`、`install-hyperos.sh`，输出目录传入 `"$PWD/build-hyperos"`。它独立安装到 `~/Applications/AndroidUnlockHyperOSHelper.app`，入口是 `~/.local/bin/android-unlock-hyperos`，默认 App 和启动器不会被替换。标识符和稳定路径在编译时固定，暂存安装路径仍不能录入或解锁。
+
+原手机 PIN 的 UID／serial／Android 用户绑定不变。已有凭据时，由本人在手机已解锁的状态运行 `android-unlock-hyperos authorize-existing --local-user --serial SERIAL`，在系统钥匙串弹窗决定授权；安装器不迁移密码、不改 ACL。之后仍需验证新进程读取和实际解锁。见 [HyperOS 验证记录](docs/hyperos-validation.md)。
+
 只读界面采集器是一份代码资源，不是 APK。由本人明确将仓库附带、固定哈希的 JAR 部署到已授权的设备；助手不会自动上传它：
 
 ```sh
@@ -71,7 +77,7 @@ android-unlock unlock --dry-run --serial SERIAL
 android-unlock unlock --authorize --serial SERIAL
 ```
 
-只读命令不会唤醒、呈现认证界面、输入或查询凭据。已授权解锁包含一次有界准备和至多一次 PIN 尝试，不清空、不补输、不重试、不自动重锁。助手要求新鲜、完整的 SystemUI 包/进程/窗口/显示/用户/安全状态证据、已核验的空输入字段、每一位的明确进度，以及两秒的 UI 完成后证据时限。Vivo 已填前缀槽的前景节点，只有在明确位数支持时才允许消失；未填槽、全部背景和完整键盘仍必须存在。一次非秘密占位活动，只能在紧邻的完整证据仍新鲜时复用该证据。Vivo 自动提交后，不会向新解锁的 App 发送 Enter。
+只读命令不会唤醒、呈现认证界面、输入或查询凭据。已授权解锁包含一次有界准备和至多一次 PIN 尝试，不清空、不补输、不重试、不自动重锁。助手要求新鲜、完整的 SystemUI 包/进程/窗口/显示/用户/安全状态证据、已核验的空输入字段、每一位的明确进度，以及两秒的 UI 完成后证据时限。Vivo 已填前缀槽的前景节点，只有在明确位数支持时才允许消失；未填槽、全部背景和完整键盘仍必须存在。一次非秘密占位活动，只能在紧邻的完整证据仍新鲜时复用该证据。Vivo 自动提交后，不会向新解锁的 App 发送 Enter。HyperOS 使用同一条末位规则，点按 `key0`–`key9` 的中心，不发送 Enter。该配置由一次已观察键盘整理出的离线夹具覆盖。这次改动没有做真实 PIN 输入。
 
 回执仅包含固定的非秘密元数据。`unlocked_confirmed` 要求独立读回确认同一设备/用户的 keyguard 状态；`already_unlocked` 表示原本已解锁，不消耗 PIN。命令返回码为 0 并不等同于认证成功，也不代表后续 GUI 或业务操作已经完成。遇到阻止、状态变化、拒绝、超时或部分输入，立即停止；应获取新证据，而不是重放原尝试。退出码：0 表示已观察/已就绪/已确认，2 表示被阻止，3 表示已尝试但未确认，64 表示参数错误。
 

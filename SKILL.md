@@ -10,6 +10,8 @@ platforms: [macos]
 
 Use the installed local `~/.local/bin/android-unlock` CLI on macOS. Read [README.md](README.md), relative to this Skill checkout, when installation, compatibility, missing collector code or enrollment is in question. If the CLI is not found, stop immediately; installation and enrollment must be completed manually by the user.
 
+For the optional side-by-side HyperOS installation, use the installed `~/.local/bin/android-unlock-hyperos` for the explicitly selected HyperOS phone, substituting that CLI prefix in every step below. Its separate stable bundle is `~/Applications/AndroidUnlockHyperOSHelper.app`; keep an enrolled default helper unchanged. Both variants retain the same exact serial/user credential binding and owner-only enrollment/authorization rules. Never assume the new signed App inherits another App's Keychain permission.
+
 1. Run `"$HOME/.local/bin/android-unlock" devices`. Select the user's exact serial from the nonsecret list; never choose a write target implicitly.
 2. Run `status --serial SERIAL`, then `unlock --dry-run --serial SERIAL` through that same CLI. Treat unknown identity/focus/state or missing prerequisites as blocked. Read-only commands do not wake or read Keychain.
 3. With user authorization for this phone's ordinary unlock, run **once**: `"$HOME/.local/bin/android-unlock" unlock --authorize --serial SERIAL`. This includes bounded wake and authentication-page presentation. No screen-always-on prerequisite.
