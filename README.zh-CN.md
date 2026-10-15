@@ -12,7 +12,7 @@
 
 本分支增加已观察到的 ColorOS 六位 PIN 界面及中文辅助功能计数。2026-10-15，本人录入后保持签名不变的 Find helper 已在新进程中完成一次从黑屏锁定开始的无线解锁：非交互读取钥匙串、六次数字输入成功、返回 `unlocked_confirmed`／exit 0，随后独立确认 keyguard 已解锁。ColorOS 在一次系统认证页请求后，可能还需要点一次经独立校验的 `showPasswordButton`。该验收针对已安装的签名与设备界面，不代表任意重新构建都已获授权。详见 [ColorOS 验证与本人准备](docs/coloros-validation.md)。
 
-2026-10-16，基于 `749f2f4` 且保持签名不变的独立 HyperOS helper，已在新进程非交互读取钥匙串后，通过六次受校验的标准数字按键，从黑屏锁定起点实际解锁 MIX Flip；独立状态及 keyguard 标志均确认 unlocked。CLI 在最后一次动作后仍返回 exit 3／`hyperos_progress_source_unverified`，属于已确认的末位回执误报。保留原回执，按 [HyperOS 验证记录](docs/hyperos-validation.md#accepted-physical-unlock-and-terminal-receipt-limit) 的精确条件另查只读状态，分别报告实际解锁与 CLI 错误；保留已经授权且可用的 App。
+2026-10-16，基于 `749f2f4` 且保持签名不变的独立 HyperOS helper，已在新进程非交互读取钥匙串后，通过六次受校验的标准数字按键，从黑屏锁定起点实际解锁 MIX Flip；独立状态及 keyguard 标志均确认 unlocked。CLI 在最后一次动作后仍返回 exit 3／`hyperos_progress_source_unverified`，属于已确认的末位回执误报。保留原回执，按 [HyperOS 验证记录](docs/hyperos-validation.md#accepted-physical-unlock-and-terminal-receipt-limit) 的精确条件另查只读状态，分别报告实际解锁与 CLI 错误；双焦点兼容修复后，本人授权的 `a74755e` 安装版又完成一次独立确认的实际解锁，耗时39.714秒，仍有相同的末位CLI误报。保留这个最新已授权且可用的 App。
 
 2026-10-11，源码基线曾在新的正常进程中，从黑屏锁定起点通过非交互钥匙串读取完成一次解锁，随后另行查询状态确认已解锁。之后一次用户要求的尝试因无法核验窗口，在读取凭据或输入前停止；再后来观察到手机已解锁，但原因未知，不能归因于该尝试。2026-10-12，冻结Flyme源码基线累计四次真实自动解锁均由独立状态核验成功（三次真正黑屏起点，恢复后另一次亮屏锁定起点），正常新进程非交互钥匙串读取成功。但CLI最后触摸后仍exit3／`flyme_progress_missing_ack`，属于已知终态回执误报，不能称CLI成功回执也已修好。主分支保留该实测基线；终态确认修复另存离线验证过、尚未真机验收的可选补丁。使用Flyme前必读[验证总结与本人后续事项](docs/flyme-validation.md)。公开仓库可离线构建检查；重新构建的签名并未配置或真机验收，也不继承本机基线的钥匙串许可。只要无法确认当前身份、焦点、几何结构或时效，安全停止就是预期行为。
 
