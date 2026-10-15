@@ -23,6 +23,7 @@ public final class HyperOSProgressProbe extends UiAutomatorTestCase {
     private int fields, cancel, delete, visited, events;
     private long deadline;
     private boolean closed;
+    private String stage = "stdout_guard";
 
     private static boolean shape(AccessibilityNodeInfo n) {
         return "com.android.systemui".contentEquals(n.getPackageName() == null ? "" : n.getPackageName()) &&
@@ -79,31 +80,39 @@ public final class HyperOSProgressProbe extends UiAutomatorTestCase {
         UiAutomatorBridge bridge = null;
         try {
             if (!Files.readSymbolicLink(Paths.get("/proc/self/fd/1")).toString().startsWith("pipe:[")) throw new SecurityException();
+            stage = "bridge_lookup";
             UiDevice device = getUiDevice(); device.setCompressedLayoutHeirarchy(false);
             Method accessor = UiDevice.class.getDeclaredMethod("getAutomatorBridge"); accessor.setAccessible(true);
             Object object = accessor.invoke(device);
             if (!(object instanceof UiAutomatorBridge)) throw new IllegalStateException();
             bridge = (UiAutomatorBridge)object;
+            stage = "root_query";
             AccessibilityNodeInfo root = bridge.getRootInActiveWindow();
             if (root == null) throw new IllegalStateException();
             deadline = System.nanoTime() + 1500000000L;
             try {
+                stage = "field_walk";
                 walk(root, new ArrayList<String>(), 0);
+                stage = "field_footer_binding";
                 if (fields != 1 || field == null || field.getWindowId() != root.getWindowId() ||
                     !((cancel == 1 && delete == 0) || (cancel == 0 && delete == 1))) throw new IllegalStateException();
             } finally { root.recycle(); }
+            stage = "listener_registration";
             bridge.setOnAccessibilityEventListener(new UiAutomation.OnAccessibilityEventListener() {
                 public void onAccessibilityEvent(AccessibilityEvent e) { event(e); }
             });
             System.out.println("__AU_HYPEROS_PROBE_READY__ " + cancel + " " + delete);
             System.out.flush();
+            stage = "observe";
             long until = System.nanoTime() + 180000000000L;
             for (;;) {
                 synchronized (this) { if (closed || events >= 8 || System.nanoTime() >= until) break; }
                 Thread.sleep(50);
             }
-        } catch (Throwable ignored) {
-            System.out.println("__AU_HYPEROS_PROBE_FAILED__ context"); System.out.flush();
+        } catch (Throwable failure) {
+            String kind = failure instanceof LinkageError ? "linkage" :
+                failure instanceof SecurityException ? "security" : "context";
+            System.out.println("__AU_HYPEROS_PROBE_FAILED__ " + stage + " " + kind); System.out.flush();
         } finally {
             synchronized (this) { closed = true; }
             if (bridge != null) { try { bridge.setOnAccessibilityEventListener(null); } catch (Throwable ignored) {} }
