@@ -25,6 +25,40 @@ public final class HyperOSProgressProbe extends UiAutomatorTestCase {
     private boolean closed;
     private String stage = "stdout_guard";
 
+    /** Non-PIN control: hold the same observation connection while a Settings Back tap is tested. */
+    public void testSettingsHold() {
+        UiAutomatorBridge bridge = null;
+        try {
+            if (!Files.readSymbolicLink(Paths.get("/proc/self/fd/1")).toString().startsWith("pipe:[")) throw new SecurityException();
+            UiDevice device = getUiDevice(); device.setCompressedLayoutHeirarchy(false);
+            Method accessor = UiDevice.class.getDeclaredMethod("getAutomatorBridge"); accessor.setAccessible(true);
+            Object object = accessor.invoke(device);
+            if (!(object instanceof UiAutomatorBridge)) throw new IllegalStateException();
+            bridge = (UiAutomatorBridge)object;
+            AccessibilityNodeInfo root;
+            long until = System.nanoTime() + 500000000L;
+            do {
+                root = bridge.getRootInActiveWindow();
+                if (root != null || System.nanoTime() >= until) break;
+                Thread.sleep(10);
+            } while (true);
+            if (root == null) throw new IllegalStateException();
+            try {
+                if (!"com.android.settings".contentEquals(root.getPackageName() == null ? "" : root.getPackageName())) throw new IllegalStateException();
+            } finally { root.recycle(); }
+            bridge.setOnAccessibilityEventListener(new UiAutomation.OnAccessibilityEventListener() {
+                public void onAccessibilityEvent(AccessibilityEvent event) { event.recycle(); }
+            });
+            System.out.println("__AU_SETTINGS_HOLD_READY__"); System.out.flush();
+            Thread.sleep(15000);
+        } catch (Throwable ignored) {
+            System.out.println("__AU_SETTINGS_HOLD_FAILED__"); System.out.flush();
+        } finally {
+            if (bridge != null) { try { bridge.setOnAccessibilityEventListener(null); } catch (Throwable ignored) {} }
+            System.out.println("__AU_SETTINGS_HOLD_DONE__"); System.out.flush();
+        }
+    }
+
     private static boolean shape(AccessibilityNodeInfo n) {
         return "com.android.systemui".contentEquals(n.getPackageName() == null ? "" : n.getPackageName()) &&
             (PREFIX + "pinEntry").equals(n.getViewIdResourceName()) &&
