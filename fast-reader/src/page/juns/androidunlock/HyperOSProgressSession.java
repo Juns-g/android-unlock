@@ -94,7 +94,7 @@ public final class HyperOSProgressSession extends UiAutomatorTestCase {
     private synchronized void event(AccessibilityEvent e) {
         AccessibilityNodeInfo source = null;
         try {
-            if (closed) return;
+            if (closed || error != 0) return;
             if (e.getEventType() == 32 || e.getEventType() == 4194304) {
                 if (!completed) error = 1; return;
             }
@@ -128,7 +128,7 @@ public final class HyperOSProgressSession extends UiAutomatorTestCase {
     private synchronized void await(int expected) throws InterruptedException {
         long until = SystemClock.uptimeMillis() + 800;
         while (error == 0 && accepted < expected && SystemClock.uptimeMillis() < until) wait(10);
-        if (accepted != expected || armed) error = 4;
+        if (error == 0 && (accepted != expected || armed)) error = 4;
     }
     private void frame(OutputStream output, byte[] xml) throws java.io.IOException {
         synchronized (this) {
@@ -174,6 +174,9 @@ public final class HyperOSProgressSession extends UiAutomatorTestCase {
                 } else if (command.matches("SNAP (0|[1-9]|1[0-5])") || command.equals("ACK " + limit)) {
                     int expected = Integer.parseInt(command.substring(command.indexOf(' ') + 1));
                     if (expected > 0) await(expected);
+                    synchronized (this) {
+                        if (error != 0) { frame(output, new byte[0]); break; }
+                    }
                     if (command.startsWith("ACK ")) { frame(output, new byte[0]); continue; }
                     if (expected >= limit) { error = 6; frame(output, new byte[0]); break; }
                     AccessibilityNodeInfo root = bridge.getRootInActiveWindow();

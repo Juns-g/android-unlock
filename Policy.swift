@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-let collectorSHA256 = "d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc"
+let collectorSHA256 = "15f65fef7f7cfbbae7f2bf499f21cd5042cd969020934078452b202e3c851e72"
 let collectorDevicePath = "/data/local/tmp/page.juns.android-unlock-" + collectorSHA256 + ".jar"
 let flymeSystemUIPath = "/system_ext/priv-app/SystemUI/SystemUI.apk"
 let flymeSystemUISHA256 = "3f31b7cee25e0c70bf56bda87350ef5011cca24858ac2d80e3751f363c7c9b30"

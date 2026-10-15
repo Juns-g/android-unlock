@@ -17,6 +17,17 @@ func runHyperOSCoverChecks(_ ck: (Bool) -> Void) {
     ck(hyperOSCoverVerified(xml))
     ck(parseHierarchy(xml)?.bad == true && !coverHierarchy(xml)) // The generic Space path stays closed.
     ck(hyperOSCoverVerified(xml.replacingOccurrences(of: "focused=\"true\"", with: "focused=\"false\"")))
+    let indication = node(sys + "keyguard_indication_text_bottom", "android.widget.TextView", bounds: "[400,1650][500,1700]", focused: true, clickable: true, focusable: true)
+    let indicationArea = node(sys + "keyguard_indication_area", "android.widget.LinearLayout", bounds: "[300,1550][600,1800]", children: indication)
+    // Insert into the actual bottom-area ancestry after removing shortcut focus.
+    let noFocusShortcut = shortcut.replacingOccurrences(of: "focused=\"true\"", with: "focused=\"false\"")
+    let focusedIndicationXML = xml.replacingOccurrences(of: "focused=\"true\"", with: "focused=\"false\"").replacingOccurrences(of: noFocusShortcut, with: noFocusShortcut + indicationArea)
+    ck(hyperOSCoverVerified(focusedIndicationXML))
+    ck(!hyperOSCoverVerified(xml.replacingOccurrences(of: shortcut, with: shortcut + indicationArea)))
+    ck(!hyperOSCoverVerified(focusedIndicationXML.replacingOccurrences(of: indication, with: indication + indication)))
+    ck(!hyperOSCoverVerified(focusedIndicationXML.replacingOccurrences(of: "id/keyguard_indication_area", with: "id/unknown_area")))
+    ck(!hyperOSCoverVerified(focusedIndicationXML.replacingOccurrences(of: "[400,1650][500,1700]", with: "[0,1500][100,1700]")))
+    ck(!hyperOSCoverVerified(focusedIndicationXML.replacingOccurrences(of: "id/keyguard_indication_text_bottom\" class=\"android.widget.TextView", with: "id/keyguard_indication_text_bottom\" class=\"android.widget.EditText")))
     for (old, replacement) in [
         ("id/shortcut_view_left\"", "id/unknown_shortcut\""),
         ("id/keyguard_shortcut_layout", "id/unknown_layout"),
