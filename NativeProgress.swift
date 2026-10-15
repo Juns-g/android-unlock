@@ -240,10 +240,11 @@ func submitHyperOSProgressPIN(_ pin: Data, initial: Snapshot, report: ((Snapshot
         report?(last, actions, succeeded); return last
     }, send: { key in
         guard (7...16).contains(key), freshHyperOSInputProof(last, expected: progress.expected, now: ProcessInfo.processInfo.systemUptime),
-              let rect = last.target?.keys[key - 7], progress.arm(),
+              last.target?.keys[key - 7] != nil, progress.arm(),
               freshHyperOSInputProof(last, expected: progress.expected, now: ProcessInfo.processInfo.systemUptime) else { return false }
-        let point = rect.center
-        var payload = Data("exec /system/bin/input tap \(point.0) \(point.1)\n".utf8)
+        // The pinned OEM onKeyDown maps these standard digit keys to its own bound keypad buttons.
+        // Keep the full keypad proof and require the same source-bound append after every action.
+        var payload = Data("exec /system/bin/input keyevent \(key)\n".utf8)
         defer { payload.resetBytes(in: 0..<payload.count) }
         actions += 1
         let outcome = runADB(["-s", initial.serial, "shell", "-T", "-e", "none", "toybox", "timeout", "-s", "KILL", "2", "/system/bin/sh"], timeout: 4, confidential: payload)
