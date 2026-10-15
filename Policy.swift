@@ -596,7 +596,7 @@ func pinTarget(delegate: PinXML, windowText: String) -> PinTarget? {
     guard delegate.vivoTarget == nil, delegate.harmlessFocus == 0 else { return nil }
     if (delegate.hyperosNodes["keyguard_pin_view"] ?? 0) > 0 {
         guard delegate.validHyperOS, delegate.targets.isEmpty, let field = delegate.hyperosField else { return nil }
-        return PinTarget(window: lines[0], field: field.0, count: field.1, mode: .hyperos, keys: delegate.hyperosKeys)
+        return PinTarget(window: lines[0], field: field.0, count: field.1, mode: .hyperos, keys: delegate.hyperosKeys, placeholder: uiBounds(field.0))
     }
     guard delegate.targets.count == 1 else { return nil }
     return PinTarget(window: lines[0], field: delegate.targets[0].0, count: delegate.targets[0].1)
@@ -821,10 +821,10 @@ func immediateCoverObservation(_ initial: Snapshot, _ current: Snapshot, now: Do
         (initial.coverWindow == nil || initial.coverWindow == current.coverWindow)
 }
 func activityEligible(_ s: Snapshot, authorized: Bool) -> Bool {
-    authorized && decision(s) == "ready" && s.target?.mode == .vivoSix && s.target?.placeholder != nil
+    authorized && decision(s) == "ready" && (s.target?.mode == .vivoSix || s.target?.mode == .hyperos) && s.target?.placeholder != nil
 }
 // Dispatch may reuse only the immutable full PIN snapshot returned by the first real recheck.
-func immediateTrustedVivoPinObservation(_ s: Snapshot, serial: String, authorized: Bool, now: Double) -> Bool {
+func immediateTrustedPinActivityObservation(_ s: Snapshot, serial: String, authorized: Bool, now: Double) -> Bool {
     guard s.serial == serial, validSerial(serial), activityEligible(s, authorized: authorized),
           s.focusResult == "focus_identity_verified", ["windows", "displays"].contains(s.focusSource), s.focusDisplayID == 0,
           s.hierarchyResult == "hierarchy_xml_parsed", !s.hierarchyStdoutEmpty, s.coverWindow == nil,

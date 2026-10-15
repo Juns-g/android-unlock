@@ -365,7 +365,7 @@ func prepareNative(_ initial: Snapshot) -> Preparation {
 func pinActivity(_ initial: Snapshot, authorized: Bool) -> Bool {
     guard activityEligible(initial, authorized: authorized), let rect = initial.target?.placeholder else { return false }
     let point = rect.center
-    guard immediateTrustedVivoPinObservation(initial, serial: initial.serial, authorized: authorized,
+    guard immediateTrustedPinActivityObservation(initial, serial: initial.serial, authorized: authorized,
                                            now: ProcessInfo.processInfo.systemUptime) else { return false }
     return runADB(["-s", initial.serial, "shell", "-T", "-e", "none", "toybox", "timeout", "-s", "KILL", "2", "/system/bin/input", "tap", String(point.0), String(point.1)], timeout: 4).ok
 }

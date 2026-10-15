@@ -449,14 +449,14 @@ import Foundation
     pinProof.observedAt = 100; pinProof.postUIVerifiedAt = 101; pinProof.postUIStateChecked = true
     pinProof.focusResult = "focus_identity_verified"; pinProof.focusSource = "displays"; pinProof.focusDisplayID = 0
     pinProof.hierarchyResult = "hierarchy_xml_parsed"; pinProof.hierarchyStdoutEmpty = false
-    ck(immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: true, now: 101.1))
-    ck(immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: true, now: 102))
-    ck(!immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: true, now: 102.001))
-    ck(!immediateTrustedVivoPinObservation(pinProof, serial: "other", authorized: true, now: 101.1))
-    ck(!immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: false, now: 101.1))
+    ck(immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: true, now: 101.1))
+    ck(immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: true, now: 102))
+    ck(!immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: true, now: 102.001))
+    ck(!immediateTrustedPinActivityObservation(pinProof, serial: "other", authorized: true, now: 101.1))
+    ck(!immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: false, now: 101.1))
     func deniesPinProof(_ change: (inout Snapshot) -> Void) -> Bool {
         var altered = pinProof; change(&altered)
-        return !immediateTrustedVivoPinObservation(altered, serial: "synthetic", authorized: true, now: 101.1)
+        return !immediateTrustedPinActivityObservation(altered, serial: "synthetic", authorized: true, now: 101.1)
     }
     ck(deniesPinProof { $0.postUIStateChecked = false })
     ck(deniesPinProof { $0.postUIVerifiedAt = 0 })
@@ -683,6 +683,27 @@ import Foundation
     ck(hyperosMasked?.mode == .hyperos && hyperosMasked?.count == 1)
     var hyperosFilled = hyperosState; hyperosFilled.target = hyperosMasked
     ck(decision(hyperosFilled) == "pin_field_not_empty")
+    ck(hyperosTarget?.placeholder == uiBounds(hyperosTarget!.field))
+    ck(activityEligible(hyperosState, authorized: true))
+    ck(!activityEligible(hyperosState, authorized: false))
+    ck(!activityEligible(hyperosFilled, authorized: true))
+    var hyperosProof = hyperosState; hyperosProof.serial = "synthetic"
+    hyperosProof.focusResult = "focus_identity_verified"; hyperosProof.focusSource = "displays"; hyperosProof.focusDisplayID = 0
+    hyperosProof.hierarchyResult = "hierarchy_xml_parsed"; hyperosProof.hierarchyStdoutEmpty = false
+    hyperosProof.postUIStateChecked = true; hyperosProof.observedAt = 100; hyperosProof.postUIVerifiedAt = 101
+    ck(immediateTrustedPinActivityObservation(hyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    ck(!immediateTrustedPinActivityObservation(hyperosProof, serial: "synthetic", authorized: true, now: 102.001))
+    ck(!immediateTrustedPinActivityObservation(hyperosProof, serial: "other", authorized: true, now: 101.1))
+    var invalidHyperosProof = hyperosProof; invalidHyperosProof.postUIStateChecked = false
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.target?.placeholder = nil
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.target?.placeholder = uiBounds("[0,0][900,1800]")
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.target?.keys[1] = hyperosTarget!.placeholder
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.focusResult = "focus_unverified"
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
     for badXML in [hyperosFixture(deleteClickable: true), hyperosFixture(bullets: 1), hyperosFixture(bullets: 17, deleteClickable: true), hyperosFixture(fieldText: "x"), hyperosFixture(deleteClickable: true, fieldText: "•1"), hyperosFixture(cancelFocused: true), hyperosFixture(overlap: true), hyperosFixture(dropKey: true), hyperosFixture(outsideKey: true), hyperosFixture(fieldClass: "android.widget.EditText")] {
         ck(pinTarget(xml: badXML, windowText: focus) == nil)
     }
