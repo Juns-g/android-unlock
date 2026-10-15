@@ -6,7 +6,18 @@ The supported shape is the observed Find / Android 16 SystemUI six-digit PIN UI 
 
 The 2026-10-15 preparation-only device diagnostic reached `ready` with `focus_identity_verified`, `hierarchy_xml_parsed`, a verified empty six-digit target, and a locked secure user 0. It did not call the credential reader or send any digit. The ordinary system authentication request showed a biometric invitation; the verified reveal button then exposed the actual keypad.
 
-The synthetic suite checks the parsing, preparation gates, per-digit count progression, six-digit length, no Enter dispatch, stopped partial input and rejection paths. This is not evidence of physical PIN entry, a persistent Keychain grant or a completed unlock. Those remain pending until the owner enrolls the exact device transport in the installed signed helper and one authorized attempt is independently confirmed.
+Later on 2026-10-15, after the owner enrolled the exact transport, the frozen helper built from `6455891fe482e62f00e669bcbfac83b4bb2f9d57` completed one full physical PIN unlock over wireless ADB. The phone was placed screen-down for this test. Read-only checks first confirmed a black, locked, secure user-0 start. A fresh authorized helper process then returned:
+
+- `result=unlocked_confirmed`, exit 0, `submitted=true`;
+- noninteractive Keychain `stage=read_success`, `osStatus=0`;
+- `actionsAttempted=6`, `adbSucceeded=6`;
+- wake and authentication-page preparation performed, followed by `lockState=unlocked`.
+
+A separate helper `status` and direct keyguard-policy read both confirmed online / secure / user 0 / awake / unlocked, with `showing=false`, `mIsShowing=false` and `mInputRestricted=false`. The installed signature and executable were verified unchanged after enrollment; this documentation update does not rebuild or replace that enrolled App. No PIN, digit sequence, raw hierarchy, device serial or Keychain contents are included here.
+
+An earlier wake-only attempt observed the phone become unlocked before any credential read or digit input. Its original receipt was `wake_unconfirmed_no_retry` / exit 3; it is not counted as PIN acceptance. The cause of that earlier transition was not independently established. The full PIN test occurred only after the owner changed the physical conditions and explicitly authorized another attempt.
+
+The existing 582-check synthetic suite covers parsing, preparation gates, per-digit count progression, six-digit length, no Enter dispatch, stopped partial input and rejection paths. The separate physical result establishes one successful fresh-process unlock for this enrolled App and observed UI. It does not establish indefinite Keychain permission, compatibility with other firmware/locales or enrollment of a newly rebuilt signature.
 
 ## Narrow compatibility changes
 
