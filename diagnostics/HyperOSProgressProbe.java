@@ -87,7 +87,13 @@ public final class HyperOSProgressProbe extends UiAutomatorTestCase {
             if (!(object instanceof UiAutomatorBridge)) throw new IllegalStateException();
             bridge = (UiAutomatorBridge)object;
             stage = "root_query";
-            AccessibilityNodeInfo root = bridge.getRootInActiveWindow();
+            AccessibilityNodeInfo root;
+            long rootDeadline = System.nanoTime() + 500000000L;
+            do {
+                root = bridge.getRootInActiveWindow();
+                if (root != null || System.nanoTime() >= rootDeadline) break;
+                Thread.sleep(10);
+            } while (true);
             if (root == null) throw new IllegalStateException();
             deadline = System.nanoTime() + 1500000000L;
             try {
