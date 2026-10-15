@@ -2,7 +2,18 @@ import Foundation
 @main struct Checks {
  static func main() {
     var n = 0
-    func ck(_ b: Bool) { precondition(b, "check \(n + 1) failed"); n += 1 }
+    func ck(_ b: Bool, line: UInt = #line) { precondition(b, "check \(n + 1) failed at Checks.swift:\(line)"); n += 1 }
+    runColorOSChecks { ck($0) }
+    runColorOSPinChecks { ck($0) }
+    runHyperOSCoverChecks { ck($0) }
+    #if HYPEROS_STANDALONE
+    ck(identity == "page.juns.AndroidUnlockHyperOSHelper")
+    ck(stablePath.hasSuffix("/Applications/AndroidUnlockHyperOSHelper.app/Contents/MacOS/android-unlock"))
+    #else
+    ck(identity == "page.juns.AndroidUnlockHelper")
+    ck(stablePath.hasSuffix("/Applications/AndroidUnlockHelper.app/Contents/MacOS/android-unlock"))
+    #endif
+    ck(service == "page.juns.android-unlock.pin.v1")
     let fixture = """
       KeyguardServiceDelegate
         showing=true
@@ -29,7 +40,12 @@ import Foundation
     ck(deviceDecision(devices("List of devices attached\na device\nb device\n"), serial: "b") == "online")
     ck(deviceDecision(devices("List of devices attached\na device\nb device\n"), serial: "c") == "device_missing")
     ck(devices("List of devices attached\na device\na device\n") == nil)
-    ck(!validSerial("a;sh")); ck(!validPIN(Data("12x4".utf8))); ck(validPIN(Data("0123".utf8)))
+    let spaced = "List of devices attached\n10.0.0.8:5555 device product:example\nadb-EXAMPLE (2)._adb-tls-connect._tcp device product:example\n"
+    ck(deviceDecision(devices(spaced), serial: "10.0.0.8:5555") == "online")
+    ck(deviceDecision(devices(spaced), serial: "adb-EXAMPLE (2)._adb-tls-connect._tcp") == "online")
+    ck(devices("List of devices attached\na;sh device\n") == nil)
+    ck(devices("List of devices attached\n device\n") == nil)
+    ck(!validSerial("a;sh")); ck(!validSerial(" serial")); ck(!validSerial("serial ")); ck(!validPIN(Data("12x4".utf8))); ck(validPIN(Data("0123".utf8)))
     var unlocked = s; unlocked.state = .unlocked; unlocked.target = nil
     var reads = 0; var inputs = 0
     func run(_ initial: Snapshot, auth: Bool = true, fresh: Snapshot? = nil, result: InputResult = .submitted, after: Snapshot? = nil) -> (String, Bool) {
@@ -156,6 +172,39 @@ import Foundation
     ck(focusObservation(windows: windowDump + "\n" + focus.replacingOccurrences(of: "abc", with: "bad"), displays: displayDump).result == "focus_sources_conflict")
     ck(focusObservation(windows: windowDump, displays: displayDump.replacingOccurrences(of: "u0 NotificationShade", with: "u10 NotificationShade")).line == nil)
     ck(focusObservation(windows: windowDump, displays: displayDump.replacingOccurrences(of: "NotificationShade", with: "FIXTURE_PRIVATE_APP")).result == "focused_window_ambiguous")
+    let colorOSDisplay = "WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)\n  Display: mDisplayId=0 (organized)\n    init=1440x3168 cur=1440x3168 app=1440x3069 rng=0x0-0x0\n"
+    for density in ["mIsDensityForced=false", "mIsDensityForced=true"] {
+        let observed = focusObservation(windows: windowDump, displays: colorOSDisplay + density + "\n  " + focus)
+        ck(observed.line == focus && observed.source == "displays" && observed.displayID == 0 && observed.result == "focus_collected")
+        ck(focusObservation(windows: windowDump, displays: density + "\n  " + focus).result == "focus_display_unscoped")
+    }
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=true\nmIsDensityForced=false\n  " + focus).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false \n  " + focus).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: "mIsDensityForced=false\n" + displayDump).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: "  Display: mDisplayId=0\n  mIsDensityForced=false\n  " + focus).result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: "  Display: mDisplayId=0\n    mIsDensityForced=true\n  " + focus).result == "focus_collected")
+    let agreed = focusObservation(windows: windowDump + "\n" + focus, displays: colorOSDisplay + "mIsDensityForced=true\n  " + focus)
+    ck(agreed.line == focus && agreed.source == "windows" && agreed.displayID == 0 && agreed.result == "focus_collected")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false").result == "focus_missing")
+    for density in ["mIsDensityForced=false extra", "mIsDensityForced=false mBaseDisplayDensity=0", "mIsDensityForced=", "mIsDensityForced=False", "mIsDensityForced=1", "mIsDensityForced=truefalse", "mIsDensityForced=false,true", "not mIsDensityForced=false", "mIsDensityForced=false\textra"] {
+        ck(focusObservation(windows: windowDump, displays: colorOSDisplay + density + "\n  " + focus).result == "focus_display_unscoped")
+    }
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "ARBITRARY_SECTION\n  " + focus).result == "focus_display_unscoped")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\nARBITRARY_SECTION\n  " + focus).result == "focus_display_unscoped")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "ARBITRARY_SECTION\nmIsDensityForced=true\n  " + focus).result == "focus_display_unscoped")
+    let displayOne = colorOSDisplay.replacingOccurrences(of: "mDisplayId=0", with: "mDisplayId=1")
+    ck(focusObservation(windows: windowDump, displays: displayOne + "mIsDensityForced=true\n  " + focus).result == "focus_default_display_unverified")
+    ck(focusObservation(windows: windowDump, displays: displayOne + "mIsDensityForced=false\n  " + focus).result == "focus_default_display_unverified")
+    ck(focusObservation(windows: windowDump + "\n" + focus.replacingOccurrences(of: "abc", with: "bad"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus).result == "focus_sources_conflict")
+    ck(focusObservation(windows: windowDump + "\n" + focus + "\n" + focus.replacingOccurrences(of: "abc", with: "def"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus).result == "focus_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus + "\n  " + focus.replacingOccurrences(of: "abc", with: "def")).result == "focus_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus + "\n" + displayOne + "mIsDensityForced=true\n  " + focus).result == "focus_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus.replacingOccurrences(of: "NotificationShade", with: "FIXTURE_PRIVATE_APP")).result == "focused_window_ambiguous")
+    ck(focusObservation(windows: windowDump, displays: colorOSDisplay + "mIsDensityForced=true\n  " + focus.replacingOccurrences(of: "u0", with: "u10")).result == "focus_window_user_or_shape_unverified")
+    ck(focusObservation(windows: windowDump.replacingOccurrences(of: "mDisplayId=0", with: "mDisplayId=1"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus).result == "focused_window_display_mismatch")
+    let namespacedColorOS = focus.replacingOccurrences(of: "Window{abc", with: "Window{com.android.systemui:ab12cd3")
+    ck(focusObservation(windows: windowDump.replacingOccurrences(of: "Window{abc", with: "Window{com.android.systemui:ab12cd3"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + namespacedColorOS).line == namespacedColorOS)
+    ck(focusObservation(windows: windowDump.replacingOccurrences(of: "Window{abc", with: "Window{arbitrary.app:ab12cd3"), displays: colorOSDisplay + "mIsDensityForced=false\n  " + focus.replacingOccurrences(of: "Window{abc", with: "Window{arbitrary.app:ab12cd3")).result == "focus_window_user_or_shape_unverified")
     ck(hierarchyDiagnostic(Data(), stderr: Data(), ok: true) == "hierarchy_stdout_empty")
     ck(hierarchyDiagnostic(Data(), stderr: Data("No such device or address".utf8), ok: true) == "hierarchy_fd_not_reopenable")
     ck(hierarchyDiagnostic(Data("FIXTURE_PRIVATE_TEXT".utf8), stderr: Data(), ok: true) == "hierarchy_no_xml")
@@ -172,6 +221,7 @@ import Foundation
     let vivoFocus = "mCurrentFocus=Window{abc u0 NotificationShade fixture title}"
     let vivoWindow = "Window #0 Window{abc u0 NotificationShade fixture title}:\n  mDisplayId=0\n  mOwnerUid=10123\n  mSession=Session{def 4321:u0a10123}\n  mAttrs={ty=NOTIFICATION_SHADE}"
     ck(focusObservation(windows: vivoWindow, displays: "  Display: mDisplayId=0\n  " + vivoFocus).line == vivoFocus)
+    ck(focusObservation(windows: vivoWindow, displays: "  Display: mDisplayId=0\nmIsDensityForced=true\n  " + vivoFocus).line == vivoFocus)
     let vivoTarget = PinTarget(window: vivoFocus, field: "", count: 0)
     ck(verifiedWindow(vivoWindow, target: vivoTarget, pid: "4321", uid: 10123))
     let numericRoleWindow = vivoWindow.replacingOccurrences(of: "ty=NOTIFICATION_SHADE", with: "ty=2040")
@@ -399,14 +449,14 @@ import Foundation
     pinProof.observedAt = 100; pinProof.postUIVerifiedAt = 101; pinProof.postUIStateChecked = true
     pinProof.focusResult = "focus_identity_verified"; pinProof.focusSource = "displays"; pinProof.focusDisplayID = 0
     pinProof.hierarchyResult = "hierarchy_xml_parsed"; pinProof.hierarchyStdoutEmpty = false
-    ck(immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: true, now: 101.1))
-    ck(immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: true, now: 102))
-    ck(!immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: true, now: 102.001))
-    ck(!immediateTrustedVivoPinObservation(pinProof, serial: "other", authorized: true, now: 101.1))
-    ck(!immediateTrustedVivoPinObservation(pinProof, serial: "synthetic", authorized: false, now: 101.1))
+    ck(immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: true, now: 101.1))
+    ck(immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: true, now: 102))
+    ck(!immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: true, now: 102.001))
+    ck(!immediateTrustedPinActivityObservation(pinProof, serial: "other", authorized: true, now: 101.1))
+    ck(!immediateTrustedPinActivityObservation(pinProof, serial: "synthetic", authorized: false, now: 101.1))
     func deniesPinProof(_ change: (inout Snapshot) -> Void) -> Bool {
         var altered = pinProof; change(&altered)
-        return !immediateTrustedVivoPinObservation(altered, serial: "synthetic", authorized: true, now: 101.1)
+        return !immediateTrustedPinActivityObservation(altered, serial: "synthetic", authorized: true, now: 101.1)
     }
     ck(deniesPinProof { $0.postUIStateChecked = false })
     ck(deniesPinProof { $0.postUIVerifiedAt = 0 })
@@ -435,7 +485,7 @@ import Foundation
     ck(vivoCoverBounds(wrappedCover.replacingOccurrences(of: "<hierarchy>", with: "<!DOCTYPE hierarchy><hierarchy>")) == nil)
     ck(collectorResourceResult(nil) == "hierarchy_collector_resource_missing")
     ck(collectorResourceResult(Data("wrong-code".utf8)) == "hierarchy_collector_resource_mismatch")
-    let codeResource = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().appendingPathComponent("AndroidUnlockHelper.app/Contents/Resources/fast-reader.jar")
+    let codeResource = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().appendingPathComponent(helperAppName + ".app/Contents/Resources/fast-reader.jar")
     ck(collectorResourceResult(try? Data(contentsOf: codeResource)) == "verified")
     ck(!collectorDeviceHashMatches(""))
     ck(collectorDeviceHashMatches(collectorSHA256 + "  " + collectorDevicePath + "\n"))
@@ -582,6 +632,136 @@ import Foundation
     ck(uiReuse(cachedCover, s, window: cacheWindow, now: 102.001) == .refresh)
     ck(cached.observedAt == 100 && cachedCover.observedAt == 100)
     ck(!trustedADB()) // Test executable has no signed-bundle ADB configuration.
+    func hyperosNode(_ id: String, _ cls: String, bounds: String, password: String = "false", focused: String = "false", clickable: String = "false", focusable: String = "false", text: String = "", children: String = "") -> String {
+        "<node package=\"com.android.systemui\" resource-id=\"com.android.systemui:id/\(id)\" class=\"\(cls)\" enabled=\"true\" password=\"\(password)\" focused=\"\(focused)\" focusable=\"\(focusable)\" clickable=\"\(clickable)\" text=\"\(text)\" bounds=\"\(bounds)\">\(children)</node>"
+    }
+    func hyperosKeyBounds(_ digit: Int, overlap: Bool) -> String {
+        if overlap && digit == 0 { return hyperosKeyBounds(5, overlap: false) }
+        let pos = digit == 0 ? 10 : digit - 1
+        let x1 = 100 + (pos % 3) * 230
+        let y1 = 900 + (pos / 3) * 180
+        return "[\(x1),\(y1)][\(x1 + 200),\(y1 + 150)]"
+    }
+    func hyperosFixture(bullets: Int = 0, deleteClickable: Bool = false, emergencyFocused: Bool = true, cancelFocused: Bool = false, overlap: Bool = false, dropKey: Bool = false, outsideKey: Bool = false, fieldClass: String = "com.android.keyguard.PasswordTextView", fieldText: String? = nil) -> String {
+        let text = fieldText ?? String(repeating: "•", count: bullets)
+        let field = hyperosNode("pinEntry", fieldClass, bounds: "[200,720][700,820]", password: "true", focused: "true", focusable: "true", text: text)
+        func keys(_ digits: [Int]) -> String {
+            digits.map { digit in
+                let bounds = outsideKey && digit == 1 ? "[0,200][40,240]" : hyperosKeyBounds(digit, overlap: overlap)
+                return hyperosNode("key\(digit)", "android.view.ViewGroup", bounds: bounds, clickable: "true", focusable: "true")
+            }.joined()
+        }
+        let present = dropKey ? [0, 1, 2, 3, 4, 5, 6, 7, 8] : Array(0...9)
+        let deleteChild = deleteClickable ? hyperosNode("delete_button", "android.widget.ImageView", bounds: "[580,1460][740,1570]", clickable: "true", focusable: "true") : ""
+        let delete = hyperosNode("delete_container", "android.widget.FrameLayout", bounds: "[560,1440][760,1590]", clickable: deleteClickable ? "true" : "false", focusable: deleteClickable ? "true" : "false", children: deleteChild)
+        let emergency = hyperosNode("emergency_call_button", "android.widget.Button", bounds: "[100,1600][300,1700]", focused: emergencyFocused ? "true" : "false", clickable: "true", focusable: "true")
+        let cancel = hyperosNode("cancel_button", "android.widget.TextView", bounds: "[560,1600][760,1700]", focused: cancelFocused ? "true" : "false", clickable: "true", focusable: "true")
+        let fade = hyperosNode("keyguard_selector_fade_container", "android.widget.LinearLayout", bounds: "[100,1600][760,1700]", children: emergency + (bullets == 0 ? cancel : ""))
+        let rows = hyperosNode("row0", "android.widget.RelativeLayout", bounds: "[100,700][800,860]", children: field)
+            + hyperosNode("row1", "android.widget.LinearLayout", bounds: "[100,900][800,1050]", children: keys(present.filter { (1...3).contains($0) }))
+            + hyperosNode("row2", "android.widget.LinearLayout", bounds: "[100,1080][800,1230]", children: keys(present.filter { (4...6).contains($0) }))
+            + hyperosNode("row3", "android.widget.LinearLayout", bounds: "[100,1260][800,1410]", children: keys(present.filter { (7...9).contains($0) }))
+            + hyperosNode("row4", "android.widget.LinearLayout", bounds: "[100,1440][800,1590]", children: keys(present.filter { $0 == 0 }) + delete)
+        let container = hyperosNode("pin_container", "android.widget.LinearLayout", bounds: "[100,700][800,1700]", children: rows + fade)
+        let face = hyperosNode("miui_keyguard_face_unlock_view", "android.view.ViewGroup", bounds: "[0,40][80,120]", clickable: "true", focusable: "true")
+        let header = hyperosNode("fl_header_view", "android.widget.FrameLayout", bounds: "[0,25][900,200]", children: face)
+        let pinView = hyperosNode("keyguard_pin_view", "android.widget.LinearLayout", bounds: "[0,0][900,1800]", children: header + container)
+        let flipper = hyperosNode("view_flipper", "android.widget.ViewFlipper", bounds: "[0,0][900,1800]", children: pinView)
+        let security = hyperosNode("keyguard_security_container", "android.view.ViewGroup", bounds: "[0,0][900,1800]", children: flipper)
+        let bouncer = hyperosNode("keyguard_bouncer_container", "android.widget.FrameLayout", bounds: "[0,0][900,1800]", children: security)
+        return "<?xml version=\"1.0\"?><hierarchy>" + bouncer + "</hierarchy>"
+    }
+    let hyperosXML = hyperosFixture()
+    let hyperosTarget = pinTarget(xml: hyperosXML, windowText: focus)
+    ck(hyperosTarget?.mode == .hyperos && hyperosTarget?.count == 0 && hyperosTarget?.keys.count == 10)
+    ck(hyperosTarget?.keys[1]?.center.0 == 200 && hyperosTarget?.keys[1]?.center.1 == 975)
+    ck(hyperosTarget?.keys[0]?.center.0 == 430 && hyperosTarget?.keys[0]?.center.1 == 1515)
+    var hyperosState = s; hyperosState.target = hyperosTarget
+    ck(decision(hyperosState) == "ready")
+    // Real HyperOS shaped PINs keep empty accessibility text while the footer switches to delete.
+    let shapedNonempty = hyperosXML.replacingOccurrences(of: "id/cancel_button", with: "id/delete_button")
+    ck(pinTarget(xml: shapedNonempty, windowText: focus) == nil)
+    ck(parseHierarchy(shapedNonempty)?.hyperosFailure == "entered_progress_unavailable")
+    for count in 1...16 {
+        let parsed = parseHierarchy(shapedNonempty, hyperosProgressCount: count)!
+        ck(pinTarget(delegate: parsed, windowText: focus)?.count == count)
+    }
+    for count in [-1, 0, 17] {
+        let parsed = parseHierarchy(shapedNonempty, hyperosProgressCount: count)!
+        ck(pinTarget(delegate: parsed, windowText: focus) == nil)
+    }
+    ck(pinTarget(delegate: parseHierarchy(hyperosXML, hyperosProgressCount: 1)!, windowText: focus) == nil)
+    ck(hyperosMaskedProgress("•", observedCount: 2) == nil)
+    ck(hyperosMaskedProgress("x", observedCount: 1) == nil)
+    ck(hyperosSystemUICodeMatches(hyperosSystemUISHA256 + "  " + hyperosSystemUIPath + "\n"))
+    ck(!hyperosSystemUICodeMatches(String(repeating: "0", count: 64) + "  " + hyperosSystemUIPath))
+    ck(hyperosProgressHeader("__AU_HYPEROS_V1__ 1 16 0 24", sequence: 1)?.count == 16)
+    for line in ["__AU_HYPEROS_V1__ 2 1 0 24", "__AU_HYPEROS_V1__ 1 17 0 24", "__AU_HYPEROS_V1__ 1 1 0 262145", "__AU_HYPEROS_V1__ 1 1 3 24", "__AU_HYPEROS_V1__ 1 01 0 24", "__AU_HYPEROS_V1__ 1 1 0 24 extra", "__AU_FLYME_V1__ 1 1 0 24"] {
+        ck(hyperosProgressHeader(line, sequence: 1) == nil)
+    }
+    ck(pinTarget(xml: hyperosXML.replacingOccurrences(of: "id/cancel_button", with: "id/unknown_footer"), windowText: focus) == nil)
+    let duplicateCancel = hyperosNode("cancel_button", "android.widget.TextView", bounds: "[560,1600][760,1700]", clickable: "true", focusable: "true")
+    let duplicatedFooter = hyperosXML.replacingOccurrences(of: duplicateCancel, with: duplicateCancel + duplicateCancel)
+    ck(pinTarget(xml: duplicatedFooter, windowText: focus) == nil)
+    ck(pinTarget(xml: shapedNonempty.replacingOccurrences(of: "id/delete_button", with: "id/cancel_button"), windowText: focus)?.count == 0)
+    let invalidFooter = hyperosXML.replacingOccurrences(of: "id/cancel_button\" class=\"android.widget.TextView", with: "id/cancel_button\" class=\"android.widget.ImageView")
+    ck(pinTarget(xml: invalidFooter, windowText: focus) == nil)
+    ck(pinTarget(xml: hyperosFixture(emergencyFocused: false), windowText: focus)?.count == 0)
+    let hyperosMasked = pinTarget(xml: hyperosFixture(bullets: 1, deleteClickable: true), windowText: focus)
+    ck(hyperosMasked?.mode == .hyperos && hyperosMasked?.count == 1)
+    var hyperosFilled = hyperosState; hyperosFilled.target = hyperosMasked
+    ck(decision(hyperosFilled) == "pin_field_not_empty")
+    ck(hyperosTarget?.placeholder == uiBounds(hyperosTarget!.field))
+    ck(activityEligible(hyperosState, authorized: true))
+    ck(!activityEligible(hyperosState, authorized: false))
+    ck(!activityEligible(hyperosFilled, authorized: true))
+    var hyperosProof = hyperosState; hyperosProof.serial = "synthetic"
+    hyperosProof.focusResult = "focus_identity_verified"; hyperosProof.focusSource = "displays"; hyperosProof.focusDisplayID = 0
+    hyperosProof.hierarchyResult = "hierarchy_xml_parsed"; hyperosProof.hierarchyStdoutEmpty = false
+    hyperosProof.postUIStateChecked = true; hyperosProof.observedAt = 100; hyperosProof.postUIVerifiedAt = 101
+    ck(immediateTrustedPinActivityObservation(hyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    ck(freshHyperOSInputProof(hyperosProof, expected: 0, now: 101.1))
+    ck(!freshHyperOSInputProof(hyperosProof, expected: 1, now: 101.1))
+    ck(!freshHyperOSInputProof(hyperosProof, expected: 0, now: 102.001))
+    ck(!immediateTrustedPinActivityObservation(hyperosProof, serial: "synthetic", authorized: true, now: 102.001))
+    ck(!immediateTrustedPinActivityObservation(hyperosProof, serial: "other", authorized: true, now: 101.1))
+    var invalidHyperosProof = hyperosProof; invalidHyperosProof.postUIStateChecked = false
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.target?.placeholder = nil
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.target?.placeholder = uiBounds("[0,0][900,1800]")
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.target?.keys[1] = hyperosTarget!.placeholder
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    invalidHyperosProof = hyperosProof; invalidHyperosProof.focusResult = "focus_unverified"
+    ck(!immediateTrustedPinActivityObservation(invalidHyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    for badXML in [hyperosFixture(deleteClickable: true), hyperosFixture(bullets: 1), hyperosFixture(bullets: 17, deleteClickable: true), hyperosFixture(fieldText: "x"), hyperosFixture(deleteClickable: true, fieldText: "•1"), hyperosFixture(cancelFocused: true), hyperosFixture(overlap: true), hyperosFixture(dropKey: true), hyperosFixture(outsideKey: true), hyperosFixture(fieldClass: "android.widget.EditText")] {
+        ck(pinTarget(xml: badXML, windowText: focus) == nil)
+    }
+    ck(pinTarget(xml: hyperosXML.replacingOccurrences(of: "id/emergency_call_button", with: "id/unknown_button"), windowText: focus) == nil)
+    ck(pinTarget(xml: hyperosXML.replacingOccurrences(of: "id/keyguard_pin_view", with: "id/unknown_pin_view"), windowText: focus) == nil)
+    ck(pinTarget(xml: hyperosXML.replacingOccurrences(of: "package=\"com.android.systemui\"", with: "package=\"example.other\""), windowText: focus) == nil)
+    var hyperosActions: [Int] = []
+    ck(drivePIN(Data("0123".utf8), initial: hyperosState, observe: { final in
+        var next = hyperosState
+        if final { next.state = .unlocked; next.target = nil }
+        else { next.target = pinTarget(xml: hyperosFixture(bullets: hyperosActions.count, deleteClickable: hyperosActions.count > 0), windowText: focus) }
+        return next
+    }, send: { key in ck(key != 66); hyperosActions.append(key); return true }) == .submitted)
+    ck(hyperosActions == [7, 8, 9, 10])
+    hyperosActions = []
+    ck(drivePIN(Data("0123".utf8), initial: hyperosState, observe: { _ in hyperosState }, send: { key in hyperosActions.append(key); return true }) == .partial && hyperosActions == [7])
+    ck(drivePIN(Data("012".utf8), initial: hyperosState, observe: { _ in fatalError("short hyperos pin") }, send: { _ in fatalError("short hyperos pin") }) == .refused)
+    ck(drivePIN(Data(repeating: 48, count: 17), initial: hyperosState, observe: { _ in fatalError("long hyperos pin") }, send: { _ in fatalError("long hyperos pin") }) == .refused)
+    hyperosActions = []
+    let aospBesideUnrelatedKey = xml.replacingOccurrences(of: "</hierarchy>", with: hyperosNode("key1", "android.view.ViewGroup", bounds: "[4,5][6,7]", clickable: "true", focusable: "true") + hyperosNode("delete_container", "android.widget.FrameLayout", bounds: "[8,9][10,11]") + "</hierarchy>")
+    ck(pinTarget(xml: aospBesideUnrelatedKey, windowText: focus)?.mode == .aosp)
+    ck(drivePIN(Data("012345".utf8), initial: hyperosState, observe: { final in
+        var next = hyperosState
+        if final { next.state = .unlocked; next.target = nil }
+        else { next.target = pinTarget(xml: hyperosFixture(bullets: hyperosActions.count, deleteClickable: hyperosActions.count > 0), windowText: focus) }
+        return next
+    }, send: { key in ck(key != 66); hyperosActions.append(key); return true }) == .submitted && hyperosActions == [7, 8, 9, 10, 11, 12])
     print("\(n) synthetic checks passed; fixture callbacks only; no real ADB/input/Keychain")
  }
 }
