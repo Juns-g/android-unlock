@@ -52,11 +52,11 @@ sh install.sh "$PWD/build" --stage "$PWD/build/stage"
 只读界面采集器是一份代码资源，不是 APK。由本人明确将仓库附带、固定哈希的 JAR 部署到已授权的设备；助手不会自动上传它：
 
 ```sh
-adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
-adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
+adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc.jar
+adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc.jar
 ```
 
-本机和设备上的摘要都必须等于 `128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def`。资源缺失或不匹配时，助手会拒绝继续。仓库包含源码和仅供编译的 API 声明。若要重新构建，请自行提供 JDK 和官方 Google R8/D8 JAR，并执行 `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`。重新构建可能改变归档字节；替换受完整性保护的资源，需要有意识地审查并更新固定哈希，不能关闭验证。DEX只包含本项目原创`FastHierarchy`、`FlymeProgressSession`及其生成的监听器类；编译声明不会作为运行时实现发布。详见[来源与许可说明](THIRD_PARTY_NOTICES.zh-CN.md)。
+本机和设备上的摘要都必须等于 `d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc`。资源缺失或不匹配时，助手会拒绝继续。仓库包含源码和仅供编译的 API 声明。若要重新构建，请自行提供 JDK 和官方 Google R8/D8 JAR，并执行 `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`。重新构建可能改变归档字节；替换受完整性保护的资源，需要有意识地审查并更新固定哈希，不能关闭验证。DEX只包含本项目原创`FastHierarchy`、`FlymeProgressSession`及其生成的监听器类；编译声明不会作为运行时实现发布。详见[来源与许可说明](THIRD_PARTY_NOTICES.zh-CN.md)。
 
 先手动将手机正常解锁、亮屏并保持安全锁屏设置，再由**本机用户本人**执行：
 

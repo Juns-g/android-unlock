@@ -1,11 +1,17 @@
 import Foundation
 import CryptoKit
 
-let collectorSHA256 = "128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def"
+let collectorSHA256 = "d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc"
 let collectorDevicePath = "/data/local/tmp/page.juns.android-unlock-" + collectorSHA256 + ".jar"
 let flymeSystemUIPath = "/system_ext/priv-app/SystemUI/SystemUI.apk"
 let flymeSystemUISHA256 = "3f31b7cee25e0c70bf56bda87350ef5011cca24858ac2d80e3751f363c7c9b30"
 let flymeCodeCommand = ("flymeCode", "toybox sha256sum " + flymeSystemUIPath)
+let hyperosSystemUIPath = "/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk"
+let hyperosSystemUISHA256 = "6972e29c511b078a62612646c53039865c4fb140dc24b90d9d7035532435af66"
+let hyperosCodeCommand = ("hyperosCode", "toybox sha256sum " + hyperosSystemUIPath)
+func hyperosSystemUICodeMatches(_ text: String) -> Bool {
+    text.split(whereSeparator: { $0.isWhitespace }).map(String.init) == [hyperosSystemUISHA256, hyperosSystemUIPath]
+}
 let flymeSpeechCommand = ("flymeSpeech", "settings --user 0 get secure speak_password")
 func flymeSpeechDisabled(_ value: String?) -> Bool {
     guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
@@ -44,7 +50,7 @@ func processCommand(_ pid: String) -> (String, String)? {
 }
 func batchArguments(_ serial: String, commands: [(String, String)]) -> [String]? {
     guard validSerial(serial), !commands.isEmpty, commands.count <= 12 else { return nil }
-    let allowed = stateCommands + identityCommands + [("hash", "toybox sha256sum " + collectorDevicePath), flymeCodeCommand, flymePrivateModeCommand, flymeSpeechCommand]
+    let allowed = stateCommands + identityCommands + [("hash", "toybox sha256sum " + collectorDevicePath), flymeCodeCommand, flymePrivateModeCommand, flymeSpeechCommand, hyperosCodeCommand]
     guard Set(commands.map { $0.0 }).count == commands.count, commands.allSatisfy({ part in
         allowed.contains { $0 == part } || (part.0 == "process" && part.1.hasPrefix("ps -p ") && processCommand(String(part.1.dropFirst(6).prefix(while: { $0 != " " })))?.1 == part.1)
     }) else { return nil }
@@ -226,6 +232,27 @@ func flymeMaskedProgress(_ text: String, observedCount: Int?) -> Int? {
     guard (1...4).contains(observedCount), text.isEmpty || text.count == observedCount else { return nil }
     return observedCount
 }
+func hyperosProgressHeader(_ text: String, sequence: Int) -> FlymeProgressHeader? {
+    let parts = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    guard parts.count == 5, parts[0] == "__AU_HYPEROS_V1__",
+          let seq = Int(parts[1]), seq == sequence, (1...40).contains(seq), String(seq) == parts[1],
+          let count = Int(parts[2]), (0...16).contains(count), String(count) == parts[2],
+          let error = Int(parts[3]), (0...7).contains(error), String(error) == parts[3],
+          let length = Int(parts[4]), (0...262144).contains(length), String(length) == parts[4],
+          error == 0 || length == 0 else { return nil }
+    return FlymeProgressHeader(sequence: seq, count: count, error: error, length: length)
+}
+func hyperosMaskedProgress(_ text: String, observedCount: Int?) -> Int? {
+    guard text.count <= 16, text.allSatisfy({ $0 == "•" }) else { return nil }
+    guard let observedCount else { return text.count }
+    guard (0...16).contains(observedCount), text.isEmpty || text.count == observedCount else { return nil }
+    return observedCount
+}
+func freshHyperOSInputProof(_ s: Snapshot, expected: Int, now: Double) -> Bool {
+    preparationGate(s) == "eligible" && s.awake && s.focusResult == "focus_identity_verified" && s.focusDisplayID == 0 &&
+        s.postUIStateChecked && s.postUIVerifiedAt >= s.observedAt && s.observedAt > 0 && now >= s.postUIVerifiedAt && now - s.observedAt <= 2 &&
+        s.target?.mode == .hyperos && s.target?.count == expected && s.target?.keys.count == 10
+}
 func freshFlymeInputProof(_ s: Snapshot, expected: Int, now: Double) -> Bool {
     preparationGate(s) == "eligible" && s.awake && s.focusResult == "focus_identity_verified" && s.focusDisplayID == 0 &&
         s.postUIStateChecked && s.postUIVerifiedAt >= s.observedAt && s.observedAt > 0 && now >= s.postUIVerifiedAt && now - s.observedAt <= 2 &&
@@ -279,6 +306,7 @@ final class PinXML: NSObject, XMLParserDelegate {
     var flymeFailure = "not_observed"
     var flymeInvalid = false
     var verifiedFlymeProgressCount: Int? = nil
+    var verifiedHyperOSProgressCount: Int? = nil
     let flymeChain = ["keyguard_bouncer_container", "keyguard_host_view", "keyguard_security_container", "view_flipper", "mz_keyguard_pin_view", "keyguard_bouncer_frame", "keyguard_bouncer_rl", "inputBox"]
     var flymeNodes: [String: Int] = [:]
     var flymeRectangles: [String: UIBounds] = [:]
@@ -469,7 +497,10 @@ final class PinXML: NSObject, XMLParserDelegate {
                   let bounds = a["bounds"], uiBounds(bounds) != nil else {
                 bad = true; hyperosInvalid = true; hyperosFailure = "field_or_mask"; return
             }
-            hyperosField = (bounds, text.count); return
+            guard let count = hyperosMaskedProgress(text, observedCount: verifiedHyperOSProgressCount) else {
+                bad = true; hyperosInvalid = true; hyperosFailure = "progress_mask_conflict"; return
+            }
+            hyperosField = (bounds, count); return
         }
         if id == "emergency_call_button", ancestors.contains("keyguard_pin_view"), hyperosNodes["keyguard_pin_view"] == 1 {
             hyperosNodes[id, default: 0] += 1
@@ -583,11 +614,13 @@ final class PinXML: NSObject, XMLParserDelegate {
         if element == "node" { stack.removeLast() }
     }
 }
-func parseHierarchy(_ xml: String, flymeProgressCount: Int? = nil) -> PinXML? {
+func parseHierarchy(_ xml: String, flymeProgressCount: Int? = nil, hyperosProgressCount: Int? = nil) -> PinXML? {
     guard let start = xml.range(of: "<?xml"), let end = xml.range(of: "</hierarchy>"), start.lowerBound < end.upperBound else { return nil }
     let fragment = String(xml[start.lowerBound..<end.upperBound])
     guard !fragment.contains("<!DOCTYPE"), !fragment.contains("<!ENTITY") else { return nil }
-    let delegate = PinXML(); delegate.verifiedFlymeProgressCount = flymeProgressCount; let parser = XMLParser(data: Data(fragment.utf8)); parser.shouldResolveExternalEntities = false; parser.delegate = delegate
+    let delegate = PinXML(); delegate.verifiedFlymeProgressCount = flymeProgressCount
+    delegate.verifiedHyperOSProgressCount = hyperosProgressCount
+    let parser = XMLParser(data: Data(fragment.utf8)); parser.shouldResolveExternalEntities = false; parser.delegate = delegate
     return parser.parse() ? delegate : nil
 }
 func pinTarget(xml: String, windowText: String) -> PinTarget? {

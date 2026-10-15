@@ -61,11 +61,11 @@ The exact UID/serial/Android-user credential account stays unchanged. If the own
 The read-only collector is code, not an APK. A human operator explicitly deploys the bundled, hash-pinned JAR to the already authorized device; the helper never uploads it automatically:
 
 ```sh
-adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
-adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
+adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc.jar
+adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc.jar
 ```
 
-Both local and device digests must equal `128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def`. Missing/mismatched code blocks the helper. Source and compile-only API stubs are included. To rebuild, supply your JDK and an official Google R8/D8 JAR: `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`. Rebuilds can change archive bytes; replacing the sealed resource requires an intentional audited hash update, not disabling verification. The DEX contains only original `FastHierarchy`, `FlymeProgressSession` and its generated listener class; stubs are never runtime implementations. See [source/license notes](THIRD_PARTY_NOTICES.md).
+Both local and device digests must equal `d12c6c593024940bd75aba01568d6dd02184ea032bb388f9418de00eeb01f9dc`. Missing/mismatched code blocks the helper. Source and compile-only API stubs are included. To rebuild, supply your JDK and an official Google R8/D8 JAR: `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`. Rebuilds can change archive bytes; replacing the sealed resource requires an intentional audited hash update, not disabling verification. The DEX contains only original `FastHierarchy`, `FlymeProgressSession` and its generated listener class; stubs are never runtime implementations. See [source/license notes](THIRD_PARTY_NOTICES.md).
 
 With the phone manually unlocked, awake and secure, the **local human** runs:
 

@@ -682,6 +682,23 @@ import Foundation
     let shapedNonempty = hyperosXML.replacingOccurrences(of: "id/cancel_button", with: "id/delete_button")
     ck(pinTarget(xml: shapedNonempty, windowText: focus) == nil)
     ck(parseHierarchy(shapedNonempty)?.hyperosFailure == "entered_progress_unavailable")
+    for count in 1...16 {
+        let parsed = parseHierarchy(shapedNonempty, hyperosProgressCount: count)!
+        ck(pinTarget(delegate: parsed, windowText: focus)?.count == count)
+    }
+    for count in [-1, 0, 17] {
+        let parsed = parseHierarchy(shapedNonempty, hyperosProgressCount: count)!
+        ck(pinTarget(delegate: parsed, windowText: focus) == nil)
+    }
+    ck(pinTarget(delegate: parseHierarchy(hyperosXML, hyperosProgressCount: 1)!, windowText: focus) == nil)
+    ck(hyperosMaskedProgress("•", observedCount: 2) == nil)
+    ck(hyperosMaskedProgress("x", observedCount: 1) == nil)
+    ck(hyperosSystemUICodeMatches(hyperosSystemUISHA256 + "  " + hyperosSystemUIPath + "\n"))
+    ck(!hyperosSystemUICodeMatches(String(repeating: "0", count: 64) + "  " + hyperosSystemUIPath))
+    ck(hyperosProgressHeader("__AU_HYPEROS_V1__ 1 16 0 24", sequence: 1)?.count == 16)
+    for line in ["__AU_HYPEROS_V1__ 2 1 0 24", "__AU_HYPEROS_V1__ 1 17 0 24", "__AU_HYPEROS_V1__ 1 1 0 262145", "__AU_HYPEROS_V1__ 1 1 3 24", "__AU_HYPEROS_V1__ 1 01 0 24", "__AU_HYPEROS_V1__ 1 1 0 24 extra", "__AU_FLYME_V1__ 1 1 0 24"] {
+        ck(hyperosProgressHeader(line, sequence: 1) == nil)
+    }
     ck(pinTarget(xml: hyperosXML.replacingOccurrences(of: "id/cancel_button", with: "id/unknown_footer"), windowText: focus) == nil)
     let duplicateCancel = hyperosNode("cancel_button", "android.widget.TextView", bounds: "[560,1600][760,1700]", clickable: "true", focusable: "true")
     let duplicatedFooter = hyperosXML.replacingOccurrences(of: duplicateCancel, with: duplicateCancel + duplicateCancel)
@@ -703,6 +720,9 @@ import Foundation
     hyperosProof.hierarchyResult = "hierarchy_xml_parsed"; hyperosProof.hierarchyStdoutEmpty = false
     hyperosProof.postUIStateChecked = true; hyperosProof.observedAt = 100; hyperosProof.postUIVerifiedAt = 101
     ck(immediateTrustedPinActivityObservation(hyperosProof, serial: "synthetic", authorized: true, now: 101.1))
+    ck(freshHyperOSInputProof(hyperosProof, expected: 0, now: 101.1))
+    ck(!freshHyperOSInputProof(hyperosProof, expected: 1, now: 101.1))
+    ck(!freshHyperOSInputProof(hyperosProof, expected: 0, now: 102.001))
     ck(!immediateTrustedPinActivityObservation(hyperosProof, serial: "synthetic", authorized: true, now: 102.001))
     ck(!immediateTrustedPinActivityObservation(hyperosProof, serial: "other", authorized: true, now: 101.1))
     var invalidHyperosProof = hyperosProof; invalidHyperosProof.postUIStateChecked = false
