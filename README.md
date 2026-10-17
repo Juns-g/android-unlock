@@ -8,7 +8,11 @@ A small macOS CLI and agent [Skill](SKILL.md) for ordinary Android screen authen
 
 - macOS with Swift/Xcode command-line tools, an official Android platform-tools `adb`, and an **already running local ADB server on 127.0.0.1:5037**. A debug switch alone does not establish the phone's RSA trust or an online connection. The helper will not start, restart, replace, or redirect that server. Its pinned client executable may differ from the executable that originally started the shared server; the server/host must also be trusted.
 - Explicit exact device serial, primary Android user 0, secure ordinary lockscreen, and Android user already unlocked once since boot. The first unlock after reboot must be performed manually. Password, pattern, biometrics and other users are unsupported.
-- A known Vivo six-slot numeric UI was tested on Android 16. A narrow four-digit numeric Meizu 17 / Android 13 / Flyme 10.5.0.0A profile now uses guarded normal touches and source-bound accessibility progress. Strict AOSP PIN parsing also exists; other variants are unverified. No always-on screen is needed: an authorized attempt may wake once and request the system authentication UI once.
+- A known Vivo six-slot numeric UI was tested on Android 16. A narrow four-digit numeric Meizu 17 / Android 13 / Flyme 10.5.0.0A profile now uses guarded normal touches and source-bound accessibility progress. A HyperOS numeric profile recognizes one observed Android 16 bouncer: a `PasswordTextView` named `pinEntry`, ten non-overlapping `key0`–`key9` hit areas, a verified empty cancel/delete footer state, and source-bound append events (accessibility text alone may stay empty). Strict AOSP PIN parsing also exists; other variants are unverified. No always-on screen is needed: an authorized attempt may wake once and request the system authentication UI once.
+
+This branch also implements the observed ColorOS six-digit UI with its Chinese accessibility count. On 2026-10-15, the owner-enrolled frozen Find helper completed a fresh-process wireless unlock from a black locked screen: noninteractive Keychain read, six successful digit actions, `unlocked_confirmed` / exit 0, and an independent unlocked keyguard readback. ColorOS preparation may request the system authentication page once and then tap one independently verified `showPasswordButton` before the keypad appears. This acceptance applies to that installed signature and device UI, not every new build. See [ColorOS validation and owner preparation](docs/coloros-validation.md).
+
+On 2026-10-16, the frozen standalone HyperOS helper built from `749f2f4` physically unlocked the owner's MIX Flip from a black locked start after a fresh-process noninteractive Keychain read and six guarded digit key events. Independent status and keyguard flags confirmed unlocked. The CLI still returned exit 3 with `hyperos_progress_source_unverified` after the last action; preserve that receipt and use the narrow read-only confirmation procedure in [HyperOS validation](docs/hyperos-validation.md#accepted-physical-unlock-and-terminal-receipt-limit). After the dual-known-focus correction, the owner-authorized `a74755e` installation completed another independently confirmed physical unlock in 39.714 seconds, with the same terminal CLI false negative. Keep this latest authorized working App unchanged.
 
 On 2026-10-11 the source baseline completed one fresh-process, noninteractive Keychain unlock from a black locked screen, followed by an independent unlocked status. A later requested attempt stopped before credential read/input when a window could not be verified; an unrelated later unlocked observation had unknown cause. On 2026-10-12, the frozen Flyme source baseline achieved four independently verified physical unlocks (three black-screen starts, then one awake/locked start after restoration), with successful ordinary new-process noninteractive Keychain reads. Its CLI still exits 3 with `flyme_progress_missing_ack` after the last touch: this is a known terminal-receipt false negative, not a successful CLI receipt. Main preserves that tested baseline; an optional terminal-confirmation patch is offline-checked but not live-accepted. Read the [validation and owner-only follow-up](docs/flyme-validation.md) before using Flyme. This public checkout can be built and checked offline; a newly rebuilt signature has not been enrolled or live-tested and does not inherit the local baseline’s Keychain grant. A safe stop is expected whenever current identity, focus, geometry or timing cannot be established.
 
@@ -41,14 +45,29 @@ Staging copies and verifies the actual signed bundle, but **does not make that p
 
 ## One-time human preparation
 
+### Optional side-by-side HyperOS helper
+
+To retain an already enrolled default App, build and install a separate fixed-identity HyperOS helper:
+
+```sh
+sh build-hyperos.sh "$PWD/build-hyperos"
+sh check-hyperos.sh "$PWD/build-hyperos"
+sh install-hyperos.sh "$PWD/build-hyperos"
+"$HOME/.local/bin/android-unlock-hyperos" help
+```
+
+This installs `~/Applications/AndroidUnlockHyperOSHelper.app` and `~/.local/bin/android-unlock-hyperos`. It does not replace the default App or launcher. The standalone bundle identity and stable path are compile-time constants; an arbitrary staging path still cannot enroll or unlock. The installer supports the same explicit replacement/backup and staging options as the default installer.
+
+The exact UID/serial/Android-user credential account stays unchanged. If the owner has already saved this phone's PIN, they can manually unlock the phone and run `android-unlock-hyperos authorize-existing --local-user --serial SERIAL`, then decide in the native Keychain prompt. No PIN migration or ACL rewrite is performed by the installer. Actual fresh-process access and physical unlock must be verified separately after authorization. See [HyperOS validation](docs/hyperos-validation.md).
+
 The read-only collector is code, not an APK. A human operator explicitly deploys the bundled, hash-pinned JAR to the already authorized device; the helper never uploads it automatically:
 
 ```sh
-adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
-adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def.jar
+adb -s SERIAL push fast-reader/collector.jar /data/local/tmp/page.juns.android-unlock-15f65fef7f7cfbbae7f2bf499f21cd5042cd969020934078452b202e3c851e72.jar
+adb -s SERIAL shell toybox sha256sum /data/local/tmp/page.juns.android-unlock-15f65fef7f7cfbbae7f2bf499f21cd5042cd969020934078452b202e3c851e72.jar
 ```
 
-Both local and device digests must equal `128aa630e499e74824068851815b1a547899060ab1a9d77dbaff3fd497d79def`. Missing/mismatched code blocks the helper. Source and compile-only API stubs are included. To rebuild, supply your JDK and an official Google R8/D8 JAR: `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`. Rebuilds can change archive bytes; replacing the sealed resource requires an intentional audited hash update, not disabling verification. The DEX contains only original `FastHierarchy`, `FlymeProgressSession` and its generated listener class; stubs are never runtime implementations. See [source/license notes](THIRD_PARTY_NOTICES.md).
+Both local and device digests must equal `15f65fef7f7cfbbae7f2bf499f21cd5042cd969020934078452b202e3c851e72`. Missing/mismatched code blocks the helper. Source and compile-only API stubs are included. To rebuild, supply your JDK and an official Google R8/D8 JAR: `sh fast-reader/build.sh /absolute/output /absolute/r8.jar`. Rebuilds can change archive bytes; replacing the sealed resource requires an intentional audited hash update, not disabling verification. The DEX contains only original `FastHierarchy`, `FlymeProgressSession`, `HyperOSProgressSession` and their generated listener classes; stubs are never runtime implementations. See [source/license notes](THIRD_PARTY_NOTICES.md).
 
 With the phone manually unlocked, awake and secure, the **local human** runs:
 
@@ -69,7 +88,7 @@ android-unlock unlock --dry-run --serial SERIAL
 android-unlock unlock --authorize --serial SERIAL
 ```
 
-Read-only commands never wake, present, input or query credentials. Authorized unlock is one bounded preparation and at most one PIN attempt, with no clear, append, retry or automatic relock. It uses fresh full SystemUI package/process/window/display/user/secure checks, a verified empty field, explicit each-digit progress and a two-second post-UI evidence limit. Filled Vivo prefix slots may disappear only as justified by the explicit count; unfilled slots, all backgrounds and the complete keyboard remain required. Its one nonsecret placeholder activity uses the immediately preceding full proof only while still fresh. Vivo auto-submit never sends Enter into a newly unlocked app.
+Read-only commands never wake, present, input or query credentials. Authorized unlock is one bounded preparation and at most one PIN attempt, with no clear, append, retry or automatic relock. It uses fresh full SystemUI package/process/window/display/user/secure checks, a verified empty field, explicit each-digit progress and a two-second post-UI evidence limit. Filled Vivo prefix slots may disappear only as justified by the explicit count; unfilled slots, all backgrounds and the complete keyboard remain required. Its one nonsecret placeholder activity uses the immediately preceding full proof only while still fresh. Vivo auto-submit never sends Enter into a newly unlocked app. HyperOS uses the pinned OEM standard digit-key handler, preserves the full keypad proof and per-digit event acknowledgement, and does not send Enter. Its tested six-digit baseline has a known terminal-receipt false negative; physical status must be reported separately as documented above.
 
 Receipts contain fixed nonsecret metadata. `unlocked_confirmed` requires independent same-device/user keyguard readback. `already_unlocked` consumes no PIN. A zero command exit alone is not authentication or GUI/business success. Stop on blocked, changed state, refusal, timeout or partial input; obtain new evidence rather than replaying. Exit codes: 0 observed/ready/confirmed, 2 blocked, 3 attempted but unconfirmed, 64 usage.
 

@@ -3,9 +3,15 @@ import AppKit
 import Security
 import Darwin
 
+#if HYPEROS_STANDALONE
+let identity = "page.juns.AndroidUnlockHyperOSHelper"
+let helperAppName = "AndroidUnlockHyperOSHelper"
+#else
 let identity = "page.juns.AndroidUnlockHelper"
+let helperAppName = "AndroidUnlockHelper"
+#endif
 let service = "page.juns.android-unlock.pin.v1"
-let stablePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/AndroidUnlockHelper.app/Contents/MacOS/android-unlock").path
+let stablePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/" + helperAppName + ".app/Contents/MacOS/android-unlock").path
 let adbPath = Bundle.main.object(forInfoDictionaryKey: "AndroidUnlockADBPath") as? String ?? ""
 // Build-pinned real path and private environment: no runtime PATH search or ADB_TRACE.
 func trustedADB() -> Bool {
@@ -85,7 +91,7 @@ func readBatch(_ serial: String, _ commands: [(String, String)]) -> [String: Str
     guard output.ok else { return nil }
     return parseBatch(output.data, names: commands.map { $0.0 })
 }
-func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? = nil, progress: FlymeNativeProgress? = nil) -> Snapshot {
+func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? = nil, progress: FlymeNativeProgress? = nil, hyperosProgress: HyperOSNativeProgress? = nil) -> Snapshot {
     var s = Snapshot(); s.serial = serial
     let d = deviceDecision(inventory(), serial: serial)
     guard d == "online" else { s.reason = d; return s }
@@ -115,6 +121,8 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         case .blocked: s.reason = "ui_evidence_stale_or_changed"; return s
         case .reuse:
             s.target = previous.target; s.coverWindow = previous.coverWindow; s.coverBounds = previous.coverBounds; s.coverIsVivo = previous.coverIsVivo; s.coverIsFlyme = previous.coverIsFlyme
+            s.coverIsColorOS = previous.coverIsColorOS; s.colorOSRevealButton = previous.colorOSRevealButton
+            s.coverIsHyperOS = previous.coverIsHyperOS
             s.observedAt = previous.observedAt; reused = true
         case .refresh: break
         }
@@ -127,25 +135,48 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
         guard let readerArgs = fastReaderArguments(serial) else { s.hierarchyResult = "hierarchy_collector_serial_invalid"; return s }
         let hierarchy: Output
         let progressCount: Int?
+        let hyperosProgressCount: Int?
         if let progress {
             hierarchy = progress.snapshotOutput(); progressCount = progress.observedCount.flatMap { $0 > 0 ? $0 : nil }
-        } else { hierarchy = runADB(readerArgs, timeout: 6, captureErrors: true); progressCount = nil }
+            hyperosProgressCount = nil
+        } else if let hyperosProgress {
+            hierarchy = hyperosProgress.snapshotOutput(); hyperosProgressCount = hyperosProgress.observedCount; progressCount = nil
+        } else { hierarchy = runADB(readerArgs, timeout: 6, captureErrors: true); progressCount = nil; hyperosProgressCount = nil }
         s.hierarchyStdoutEmpty = hierarchy.data.isEmpty; s.hierarchyStderrPresent = !hierarchy.errorData.isEmpty
-        let parsed = String(data: hierarchy.data, encoding: .utf8).flatMap { parseHierarchy($0, flymeProgressCount: progressCount) }
+        let parsed = String(data: hierarchy.data, encoding: .utf8).flatMap { parseHierarchy($0, flymeProgressCount: progressCount, hyperosProgressCount: hyperosProgressCount) }
         s.hierarchyResult = hierarchyDiagnostic(hierarchy.data, stderr: hierarchy.errorData, ok: hierarchy.ok, parsed: parsed)
         if let progress, !hierarchy.ok { s.hierarchyResult = progress.result }
+        if let hyperosProgress, !hierarchy.ok { s.hierarchyResult = hyperosProgress.result }
         guard s.hierarchyResult == "hierarchy_xml_parsed", let parsed else { return s }
         if coverHierarchy(parsed) { s.coverWindow = line; s.coverBounds = vivoCoverBounds(parsed); s.coverIsVivo = coverHierarchy(parsed, requireVivo: true); s.coverIsFlyme = !s.coverIsVivo && parsed.flymeCover }
         s.target = pinTarget(delegate: parsed, windowText: line)
+        if s.target == nil, !parsed.bad {
+            s.target = colorOSPinTarget(String(decoding: hierarchy.data, as: UTF8.self), window: line)
+        }
+        if s.target == nil, !parsed.bad, !parsed.pinPresent,
+           let area = colorOSCoverBounds(String(decoding: hierarchy.data, as: UTF8.self)) {
+            s.coverWindow = line; s.coverBounds = area; s.coverIsColorOS = true
+        }
+        if s.target == nil, !parsed.bad, !parsed.pinPresent,
+           let invitation = colorOSInvitation(String(decoding: hierarchy.data, as: UTF8.self)) {
+            s.coverWindow = line; s.coverBounds = invitation.bounds; s.coverIsColorOS = true
+            s.colorOSRevealButton = invitation.button
+        }
         s.observedAt = ProcessInfo.processInfo.systemUptime
+        if s.target == nil, !parsed.pinPresent, hyperOSCoverVerified(String(decoding: hierarchy.data, as: UTF8.self)) {
+            s.coverWindow = line; s.coverIsHyperOS = true
+        }
         if s.target == nil && s.coverWindow == nil {
-            s.hierarchyResult = parsed.flymeNodes["mz_keyguard_pin_view"] != nil ? "hierarchy_flyme_" + parsed.flymeFailure : "hierarchy_secure_target_unverified"
+            if parsed.flymeNodes["mz_keyguard_pin_view"] != nil { s.hierarchyResult = "hierarchy_flyme_" + parsed.flymeFailure }
+            else if parsed.hyperosNodes["keyguard_pin_view"] != nil { s.hierarchyResult = "hierarchy_hyperos_" + parsed.hyperosFailure }
+            else { s.hierarchyResult = "hierarchy_secure_target_unverified" }
         }
     }
     // Recheck state AND full SystemUI identity after UI; cached evidence keeps its original timestamp.
     let postStarted = ProcessInfo.processInfo.systemUptime
     let flyme = s.coverIsFlyme || s.target?.mode == .flymeFour
-    let post = readBatch(serial, identityCommands + [process] + stateCommands + (flyme ? [flymeCodeCommand, flymePrivateModeCommand, flymeSpeechCommand] : []))
+    let hyperos = s.target?.mode == .hyperos
+    let post = readBatch(serial, identityCommands + [process] + stateCommands + (flyme ? [flymeCodeCommand, flymePrivateModeCommand, flymeSpeechCommand] : []) + (hyperos ? [hyperosCodeCommand] : []))
     let postCompleted = ProcessInfo.processInfo.systemUptime
     s.postUIStateCheckSeconds = postCompleted - postStarted
     guard let post, deviceDecision(inventory(), serial: serial) == "online" else {
@@ -153,6 +184,9 @@ func snapshot(_ serial: String, queryTarget: Bool = true, reusingUI: Snapshot? =
     }
     if flyme, !flymeSystemUICodeMatches(post["flymeCode"] ?? "") {
         s.reason = "flyme_systemui_code_unverified"; s.target = nil; s.coverWindow = nil; s.coverBounds = nil; return s
+    }
+    if hyperos, !hyperosSystemUICodeMatches(post["hyperosCode"] ?? "") {
+        s.reason = "hyperos_systemui_code_unverified"; s.target = nil; s.coverWindow = nil; s.coverBounds = nil; return s
     }
     if flyme, !flymePrivateModeDisabled(post["flymePrivateMode"]) {
         s.reason = "flyme_private_mode_unverified"; s.target = nil; s.coverWindow = nil; s.coverBounds = nil; return s
@@ -240,6 +274,7 @@ func retrievePIN(_ serial: String, interactive: Bool) -> CredentialRead {
 func fetchPIN(_ serial: String) -> CredentialRead { retrievePIN(serial, interactive: false) }
 func submitPIN(_ pin: Data, initial: Snapshot, report: ((Snapshot, Int, Int) -> Void)? = nil) -> InputResult {
     if initial.target?.mode == .flymeFour { return submitFlymeProgressPIN(pin, initial: initial, report: report) }
+    if initial.target?.mode == .hyperos { return submitHyperOSProgressPIN(pin, initial: initial, report: report) }
     let deadline = ProcessInfo.processInfo.systemUptime + 90
     var last = initial; var first = true; var actions = 0; var adbSucceeded = 0
     return drivePIN(pin, initial: initial, observe: { finalOEM in
@@ -251,7 +286,7 @@ func submitPIN(_ pin: Data, initial: Snapshot, report: ((Snapshot, Int, Int) -> 
         return now
     }, send: { key in
         let command: String
-        if last.target?.mode == .vivoSix || last.target?.mode == .flymeFour {
+        if last.target?.mode == .vivoSix || last.target?.mode == .flymeFour || last.target?.mode == .colorOSSix || last.target?.mode == .hyperos {
             guard (7...16).contains(key), let rect = last.target?.keys[key - 7] else { return false }
             let point = rect.center; command = "tap \(point.0) \(point.1)"
         } else { command = "keyevent \(key)" }
@@ -312,7 +347,19 @@ func prepareNative(_ initial: Snapshot) -> Preparation {
             },
             present: {
                 guard immediateCoverObservation(initial, latest, now: ProcessInfo.processInfo.systemUptime) else { return false }
-                if latest.coverIsVivo || latest.coverIsFlyme {
+                if latest.coverIsColorOS {
+                    return prepareColorOSPage(initial: initial, current: &latest,
+                        now: { ProcessInfo.processInfo.systemUptime }, observe: { snapshot(initial.serial) },
+                        request: {
+                            guard let args = wmAuthenticationArguments(initial.serial) else { return false }
+                            let output = runADB(args, timeout: 4, captureErrors: true)
+                            return wmAuthenticationCommandOK(stdout: output.data, stderr: output.errorData, ok: output.ok)
+                        }, tap: { rect in
+                            let point = rect.center
+                            return runADB(["-s", initial.serial, "shell", "-T", "-e", "none", "toybox", "timeout", "-s", "KILL", "2", "/system/bin/input", "tap", String(point.0), String(point.1)], timeout: 4).ok
+                        })
+                }
+                if latest.coverIsVivo || latest.coverIsFlyme || latest.coverIsHyperOS {
                     guard (!latest.coverIsVivo || latest.coverBounds != nil), let args = wmAuthenticationArguments(initial.serial) else { return false }
                     let output = runADB(args, timeout: 4, captureErrors: true)
                     return wmAuthenticationCommandOK(stdout: output.data, stderr: output.errorData, ok: output.ok)
@@ -328,7 +375,7 @@ func prepareNative(_ initial: Snapshot) -> Preparation {
 func pinActivity(_ initial: Snapshot, authorized: Bool) -> Bool {
     guard activityEligible(initial, authorized: authorized), let rect = initial.target?.placeholder else { return false }
     let point = rect.center
-    guard immediateTrustedVivoPinObservation(initial, serial: initial.serial, authorized: authorized,
+    guard immediateTrustedPinActivityObservation(initial, serial: initial.serial, authorized: authorized,
                                            now: ProcessInfo.processInfo.systemUptime) else { return false }
     return runADB(["-s", initial.serial, "shell", "-T", "-e", "none", "toybox", "timeout", "-s", "KILL", "2", "/system/bin/input", "tap", String(point.0), String(point.1)], timeout: 4).ok
 }
